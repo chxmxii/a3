@@ -25,8 +25,8 @@ func newReportCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&format, "format", "markdown", "output format (markdown or json)")
-	cmd.Flags().StringVarP(&output, "output", "o", "", "output file path (default: stdout)")
+	cmd.Flags().StringVar(&format, "format", "markdown", "output format (markdown, json, or excel)")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "output file path (default: stdout, required for excel)")
 
 	return cmd
 }
@@ -65,8 +65,19 @@ func runReport(profileName, format, output string) error {
 		reportFormat = report.FormatMarkdown
 	case "json":
 		reportFormat = report.FormatJSON
+	case "excel", "xlsx":
+		// Excel needs a file path.
+		if output == "" {
+			output = fmt.Sprintf("%s-report.xlsx", profileName)
+		}
+		gen := report.NewGenerator(store)
+		if err := gen.GenerateExcel(assessment.ID, output); err != nil {
+			return fmt.Errorf("generating excel report: %w", err)
+		}
+		fmt.Printf("Excel report written to %s\n", output)
+		return nil
 	default:
-		return fmt.Errorf("unsupported format: %s (use markdown or json)", format)
+		return fmt.Errorf("unsupported format: %s (use markdown, json, or excel)", format)
 	}
 
 	// Generate report.

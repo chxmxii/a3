@@ -12,6 +12,7 @@ type Format string
 const (
 	FormatMarkdown Format = "markdown"
 	FormatJSON     Format = "json"
+	FormatExcel    Format = "excel"
 )
 
 // Generator orchestrates report generation.
@@ -39,6 +40,15 @@ func (g *Generator) Generate(assessmentID string, format Format) (string, error)
 	default:
 		return "", fmt.Errorf("unsupported format: %s", format)
 	}
+}
+
+// GenerateExcel creates an Excel report at the specified path.
+func (g *Generator) GenerateExcel(assessmentID string, outputPath string) error {
+	data, err := g.gatherData(assessmentID)
+	if err != nil {
+		return fmt.Errorf("gathering report data: %w", err)
+	}
+	return RenderExcel(data, outputPath)
 }
 
 // ReportData holds all data needed to render a report.
