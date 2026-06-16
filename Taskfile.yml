@@ -1,0 +1,120 @@
+version: '3'
+
+vars:
+  BINARY: 3a
+  BUILD_DIR: bin
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+  BUILD_TIME:
+    sh: date -u '+%Y-%m-%dT%H:%M:%SZ'
+  LDFLAGS: >-
+    -s -w
+    -X main.version={{.VERSION}}
+    -X main.commit={{.COMMIT}}
+    -X main.buildTime={{.BUILD_TIME}}
+
+tasks:
+  default:
+    desc: Build the binary
+    cmds:
+      - task: build
+
+  build:
+    desc: Compile the 3a binary
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.BINARY}} ./cmd/3a/
+    sources:
+      - cmd/**/*.go
+      - internal/**/*.go
+      - go.mod
+      - go.sum
+    generates:
+      - '{{.BUILD_DIR}}/{{.BINARY}}'
+
+  install:
+    desc: Install 3a to $GOPATH/bin (or /usr/local/bin)
+    cmds:
+      - go install -ldflags "{{.LDFLAGS}}" ./cmd/3a/
+    status:
+      - which 3a
+
+  install-local:
+    desc: Build and copy to /usr/local/bin (requires sudo)
+    deps: [build]
+    cmds:
+      - sudo cp {{.BUILD_DIR}}/{{.BINARY}} /usr/local/bin/{{.BINARY}}
+      - echo "Installed {{.BINARY}} to /usr/local/bin/{{.BINARY}}"
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./... -v -count=1
+
+  test-short:
+    desc: Run tests (short mode, skip integration)
+    cmds:
+      - go test ./... -short
+
+  lint:
+    desc: Run linters
+    cmds:
+      - cmd: golangci-lint run ./...
+        ignore_error: true
+      - go vet ./...
+
+  fmt:
+    desc: Format all Go source files
+    cmds:
+      - gofmt -w -s .
+      - goimports -w . 2>/dev/null || true
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -rf {{.BUILD_DIR}}
+      - rm -f coverage.out
+
+  tidy:
+    desc: Tidy Go modules
+    cmds:
+      - go mod tidy
+
+  check:
+    desc: Run all checks (fmt, lint, test, build)
+    cmds:
+      - task: fmt
+      - task: lint
+      - task: test
+      - task: build
+
+  release:
+    desc: Build release binaries for linux/amd64 and linux/arm64
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}/release
+      - GOOS=linux GOARCH=amd64 go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/release/{{.BINARY}}-linux-amd64 ./cmd/3a/
+      - GOOS=linux GOARCH=arm64 go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/release/{{.BINARY}}-linux-arm64 ./cmd/3a/
+      - GOOS=darwin GOARCH=amd64 go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/release/{{.BINARY}}-darwin-amd64 ./cmd/3a/
+      - GOOS=darwin GOARCH=arm64 go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/release/{{.BINARY}}-darwin-arm64 ./cmd/3a/
+      - echo "Release binaries in {{.BUILD_DIR}}/release/"
+
+  steampipe-check:
+    desc: Verify Steampipe is running and accessible
+    cmds:
+      - cmd: steampipe service status
+        ignore_error: true
+      - psql "postgres://steampipe@localhost:9193/steampipe" -c "SELECT 1" > /dev/null 2>&1 && echo "✅ Steampipe is accessible" || echo "❌ Steampipe not running. Start with: steampipe service start"
+
+  setup:
+    desc: First-time setup (install deps, create config dir)
+    cmds:
+      - go mod download
+      - mkdir -p ~/.3a
+      - task: build
+      - echo ""
+      - echo "✅ Setup complete. Next steps:"
+      - echo "   1. Start steampipe:  steampipe service start"
+      - echo "   2. Add a profile:    ./bin/3a profiles add"
+      - echo "   3. Run assessment:   ./bin/3a assess <profile-name>"
