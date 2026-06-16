@@ -9,22 +9,56 @@ import (
 )
 
 type costView struct {
-	costs     []storage.CostEstimate
-	resources []storage.Resource
+	costs        []storage.CostEstimate
+	resources    []storage.Resource
+	scrollOffset int
 }
 
-func (v *costView) render(width int) string {
+func (v *costView) render(width, height int) string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("💰 Cost Analysis"))
+	b.WriteString(titleStyle.Render("  💰 Cost Analysis"))
 	b.WriteString("\n\n")
 
 	if len(v.costs) == 0 {
-		b.WriteString(normalStyle.Render("  No cost estimates available. Run an assessment first."))
+		b.WriteString(normalStyle.Render("  No cost estimates available."))
 		return b.String()
 	}
 
-	// Calculate totals.
+	lines := v.buildLines()
+
+	// Apply scroll.
+	maxRows := height - 6
+	if maxRows < 10 {
+		maxRows = 10
+	}
+	if v.scrollOffset > len(lines)-maxRows {
+		v.scrollOffset = max(0, len(lines)-maxRows)
+	}
+	end := v.scrollOffset + maxRows
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	for i := v.scrollOffset; i < end; i++ {
+		b.WriteString(lines[i])
+		b.WriteString("\n")
+	}
+
+	if len(lines) > maxRows {
+		pct := 0
+		if len(lines)-maxRows > 0 {
+			pct = (v.scrollOffset * 100) / (len(lines) - maxRows)
+		}
+		b.WriteString(dimNavStyle.Render(fmt.Sprintf("\n  ↕ scroll %d%%", pct)))
+	}
+
+	return b.String()
+}
+
+func (v *costView) buildLines() []string {
+	var lines []string
+
 	totalCost := 0.0
 	byCategory := make(map[string]float64)
 	var idleResources []storage.CostEstimate
@@ -44,75 +78,75 @@ func (v *costView) render(width int) string {
 	}
 
 	// Total.
-	b.WriteString(headerStyle.Render("  Estimated Monthly Total"))
-	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("  $%.2f/month (~$%.2f/year)\n\n", totalCost, totalCost*12))
+	lines = append(lines, headerStyle.Render("  Monthly Total"))
+	lines = append(lines, fmt.Sprintf("    $%.2f/month (~$%.2f/year)", totalCost, totalCost*12))
+	lines = append(lines, "")
 
 	// By category.
-	b.WriteString(headerStyle.Render("  Cost by Category"))
-	b.WriteString("\n")
-	for cat, cost := range byCategory {
+	lines = append(lines, headerStyle.Render("  Breakdown by Category"))
+	type catCost struct {
+		name string
+		cost float64
+	}
+	var cats []catCost
+	for k, c := range byCategory {
+		cats = append(cats, catCost{k, c})
+	}
+	sort.Slice(cats, func(i, j int) bool { return cats[i].cost > cats[j].cost })
+	for _, cat := range cats {
 		pct := 0.0
 		if totalCost > 0 {
-			pct = (cost / totalCost) * 100
+			pct = (cat.cost / totalCost) * 100
 		}
-		b.WriteString(fmt.Sprintf("    %-15s $%8.2f  (%4.1f%%)\n", cat, cost, pct))
+		bar := strings.Repeat("█", int(pct/5))
+		lines = append(lines, fmt.Sprintf("    %-12s $%8.2f  %4.1f%%  %s", cat.name, cat.cost, pct, dimNavStyle.Render(bar)))
 	}
-	b.WriteString("\n")
+	lines = append(lines, "")
 
-	// Top 5 cost drivers.
-	b.WriteString(headerStyle.Render("  Top Cost Drivers"))
-	b.WriteString("\n")
-
-	type costItem struct {
-		resourceID string
-		cost       float64
-		resType    string
-	}
-	var items []costItem
-	for _, c := range v.costs {
-		if c.MonthlyCost != nil && *c.MonthlyCost > 0 {
-			items = append(items, costItem{
-				resourceID: c.ResourceID,
-				cost:       *c.MonthlyCost,
-				resType:    c.ResourceType,
-			})
-		}
-	}
-	sort.Slice(items, func(i, j int) bool { return items[i].cost > items[j].cost })
-	if len(items) > 5 {
-		items = items[:5]
-	}
-
-	// Build name lookup.
+	// Top cost drivers.
+	lines = append(lines, headerStyle.Render("  Top Cost Drivers"))
 	nameMap := make(map[string]string)
 	for _, r := range v.resources {
 		nameMap[r.ResourceID] = r.Name
 	}
 
-	for i, item := range items {
-		name := nameMap[item.resourceID]
-		if name == "" {
-			name = item.resourceID
-			if len(name) > 30 {
-				name = "..." + name[len(name)-27:]
-			}
-		}
-		b.WriteString(fmt.Sprintf("    %d. %-30s %-15s $%.2f/mo\n", i+1, name, item.resType, item.cost))
+	type costItem struct {
+		id      string
+		cost    float64
+		resType string
 	}
-	b.WriteString("\n")
+	var items []costItem
+	for _, c := range v.costs {
+		if c.MonthlyCost != nil && *c.MonthlyCost > 0 {
+			items = append(items, costItem{c.ResourceID, *c.MonthlyCost, c.ResourceType})
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].cost > items[j].cost })
+	if len(items) > 10 {
+		items = items[:10]
+	}
+	for i, item := range items {
+		name := nameMap[item.id]
+		if name == "" {
+			name = item.id
+		}
+		if len(name) > 30 {
+			name = name[:27] + "..."
+		}
+		lines = append(lines, fmt.Sprintf("    %2d. %-30s %-14s $%.2f/mo", i+1, name, item.resType, item.cost))
+	}
+	lines = append(lines, "")
 
-	// Optimization hints.
+	// Optimization.
 	if len(idleResources) > 0 || len(oversizedResources) > 0 {
-		b.WriteString(headerStyle.Render("  Optimization Opportunities"))
-		b.WriteString("\n")
+		lines = append(lines, headerStyle.Render("  Optimization Opportunities"))
 		if len(idleResources) > 0 {
-			b.WriteString(warnStyle.Render(fmt.Sprintf("    ⚠ %d potentially idle resource(s)\n", len(idleResources))))
+			lines = append(lines, warnStyle.Render(fmt.Sprintf("    ⚠ %d potentially idle resource(s)", len(idleResources))))
 		}
 		if len(oversizedResources) > 0 {
-			b.WriteString(warnStyle.Render(fmt.Sprintf("    ⚠ %d potentially oversized resource(s)\n", len(oversizedResources))))
+			lines = append(lines, warnStyle.Render(fmt.Sprintf("    ⚠ %d potentially oversized resource(s)", len(oversizedResources))))
 		}
 	}
 
-	return b.String()
+	return lines
 }

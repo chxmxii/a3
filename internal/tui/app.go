@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/chxmxii/3a/internal/storage"
@@ -26,7 +27,7 @@ type Model struct {
 	width        int
 	height       int
 
-	// View data.
+	// View models.
 	overview     overviewView
 	inventory    inventoryView
 	architecture architectureView
@@ -38,7 +39,13 @@ type Model struct {
 }
 
 // dataLoadedMsg is sent when data has been loaded from the store.
-type dataLoadedMsg struct{}
+type dataLoadedMsg struct {
+	overview     overviewView
+	inventory    inventoryView
+	architecture architectureView
+	findings     findingsView
+	cost         costView
+}
 
 // errMsg wraps an error for the TUI.
 type errMsg struct{ err error }
@@ -83,18 +90,37 @@ func (m Model) loadData() tea.Msg {
 		return errMsg{err}
 	}
 
-	m.overview = overviewView{
-		assessment: assessment,
-		resources:  resources,
-		findings:   findings,
-		costs:      costs,
+	// Build region list from resources.
+	regionSet := make(map[string]bool)
+	for _, r := range resources {
+		if r.Region != "" {
+			regionSet[r.Region] = true
+		}
 	}
-	m.inventory = inventoryView{resources: resources}
-	m.architecture = architectureView{resources: resources, relationships: relationships}
-	m.findings = findingsView{findings: findings}
-	m.cost = costView{costs: costs, resources: resources}
+	var regions []string
+	for reg := range regionSet {
+		regions = append(regions, reg)
+	}
+	sort.Strings(regions)
 
-	return dataLoadedMsg{}
+	return dataLoadedMsg{
+		overview: overviewView{
+			assessment: assessment,
+			resources:  resources,
+			findings:   findings,
+			costs:      costs,
+		},
+		inventory: inventoryView{
+			resources: resources,
+			regions:   regions,
+		},
+		architecture: architectureView{
+			resources:     resources,
+			relationships: relationships,
+		},
+		findings: findingsView{findings: findings},
+		cost:     costView{costs: costs, resources: resources},
+	}
 }
 
 // Update handles messages.
@@ -115,31 +141,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "5":
 			m.activeView = ViewCost
 
-		// View-specific keys.
+		// Navigation.
 		case "up", "k":
-			switch m.activeView {
-			case ViewInventory:
-				if m.inventory.cursor > 0 {
-					m.inventory.cursor--
-				}
-			case ViewFindings:
-				if m.findings.cursor > 0 {
-					m.findings.cursor--
-				}
-			}
+			m.handleUp()
 		case "down", "j":
-			switch m.activeView {
-			case ViewInventory:
-				filtered := m.inventory.filteredResources()
-				if m.inventory.cursor < len(filtered)-1 {
-					m.inventory.cursor++
-				}
-			case ViewFindings:
-				filtered := m.findings.filteredFindings()
-				if m.findings.cursor < len(filtered)-1 {
-					m.findings.cursor++
-				}
+			m.handleDown()
+
+		// Region cycling in Inventory.
+		case "r":
+			if m.activeView == ViewInventory {
+				m.inventory.nextRegion()
 			}
+		case "R":
+			if m.activeView == ViewInventory {
+				m.inventory.prevRegion()
+			}
+
+		// Type filter in Inventory.
+		case "t":
+			if m.activeView == ViewInventory {
+				m.inventory.nextType()
+			}
+
+		// Clear filters.
+		case "x":
+			if m.activeView == ViewInventory {
+				m.inventory.clearFilters()
+			}
+			if m.activeView == ViewFindings {
+				m.findings.severityFilter = ""
+				m.findings.cursor = 0
+			}
+
+		// Findings severity filters.
 		case "c":
 			if m.activeView == ViewFindings {
 				m.findings.severityFilter = "critical"
@@ -160,11 +194,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.findings.severityFilter = "low"
 				m.findings.cursor = 0
 			}
-		case "f":
-			if m.activeView == ViewFindings {
-				m.findings.severityFilter = ""
-				m.findings.cursor = 0
-			}
 		}
 
 	case tea.WindowSizeMsg:
@@ -173,6 +202,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dataLoadedMsg:
 		m.loaded = true
+		m.overview = msg.overview
+		m.inventory = msg.inventory
+		m.architecture = msg.architecture
+		m.findings = msg.findings
+		m.cost = msg.cost
 
 	case errMsg:
 		m.err = msg.err
@@ -181,35 +215,92 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) handleUp() {
+	switch m.activeView {
+	case ViewInventory:
+		if m.inventory.cursor > 0 {
+			m.inventory.cursor--
+			if m.inventory.cursor < m.inventory.offset {
+				m.inventory.offset = m.inventory.cursor
+			}
+		}
+	case ViewFindings:
+		if m.findings.cursor > 0 {
+			m.findings.cursor--
+			if m.findings.cursor < m.findings.offset {
+				m.findings.offset = m.findings.cursor
+			}
+		}
+	case ViewArchitecture:
+		if m.architecture.scrollOffset > 0 {
+			m.architecture.scrollOffset--
+		}
+	case ViewCost:
+		if m.cost.scrollOffset > 0 {
+			m.cost.scrollOffset--
+		}
+	}
+}
+
+func (m *Model) handleDown() {
+	switch m.activeView {
+	case ViewInventory:
+		filtered := m.inventory.filteredResources()
+		if m.inventory.cursor < len(filtered)-1 {
+			m.inventory.cursor++
+			maxVisible := m.height - 12
+			if maxVisible < 5 {
+				maxVisible = 5
+			}
+			if m.inventory.cursor >= m.inventory.offset+maxVisible {
+				m.inventory.offset++
+			}
+		}
+	case ViewFindings:
+		filtered := m.findings.filteredFindings()
+		if m.findings.cursor < len(filtered)-1 {
+			m.findings.cursor++
+			maxVisible := m.height - 12
+			if maxVisible < 5 {
+				maxVisible = 5
+			}
+			if m.findings.cursor >= m.findings.offset+maxVisible {
+				m.findings.offset++
+			}
+		}
+	case ViewArchitecture:
+		m.architecture.scrollOffset++
+	case ViewCost:
+		m.cost.scrollOffset++
+	}
+}
+
 // View renders the TUI.
 func (m Model) View() string {
 	if m.err != nil {
-		return fmt.Sprintf("Error: %v\n\nPress q to quit.", m.err)
+		return fmt.Sprintf("\n  Error: %v\n\n  Press q to quit.\n", m.err)
 	}
 
 	if !m.loaded {
-		return "Loading assessment data...\n"
+		return "\n  Loading assessment data...\n"
 	}
 
 	var content string
 	switch m.activeView {
 	case ViewOverview:
-		content = m.overview.render(m.width)
+		content = m.overview.render(m.width, m.height)
 	case ViewInventory:
 		content = m.inventory.render(m.width, m.height)
 	case ViewArchitecture:
-		content = m.architecture.render(m.width)
+		content = m.architecture.render(m.width, m.height)
 	case ViewFindings:
 		content = m.findings.render(m.width, m.height)
 	case ViewCost:
-		content = m.cost.render(m.width)
+		content = m.cost.render(m.width, m.height)
 	}
 
-	// Navigation bar.
 	nav := m.renderNav()
-
-	// Help bar.
-	help := helpStyle.Render("  q: quit • ↑/↓: navigate • 1-5: switch views")
+	help := m.renderHelp()
 
 	return nav + "\n" + content + "\n" + help
 }
@@ -229,15 +320,26 @@ func (m Model) renderNav() string {
 
 	var parts []string
 	for _, tab := range tabs {
-		label := fmt.Sprintf(" %s:%s ", tab.key, tab.name)
+		label := fmt.Sprintf(" %s %s ", tab.key, tab.name)
 		if tab.view == m.activeView {
 			parts = append(parts, selectedStyle.Render(label))
 		} else {
-			parts = append(parts, normalStyle.Render(label))
+			parts = append(parts, dimNavStyle.Render(label))
 		}
 	}
 
-	return " " + fmt.Sprintf("%s", joinStrings(parts, "│"))
+	return "\n " + joinStrings(parts, dimNavStyle.Render("│"))
+}
+
+func (m Model) renderHelp() string {
+	base := "q:quit  ↑↓:scroll  1-5:views"
+	switch m.activeView {
+	case ViewInventory:
+		base += "  r/R:region  t:type  x:clear"
+	case ViewFindings:
+		base += "  c/h/m/l:severity  x:clear"
+	}
+	return helpStyle.Render("  " + base)
 }
 
 func joinStrings(parts []string, sep string) string {

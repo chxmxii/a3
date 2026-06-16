@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/chxmxii/3a/internal/provider"
@@ -39,8 +40,16 @@ func (d *SteampipeDiscoverer) SupportedResourceTypes() []provider.ResourceType {
 func (d *SteampipeDiscoverer) DiscoverResources(ctx context.Context, regions []string, results chan<- provider.DiscoveredResource) error {
 	for _, mapping := range d.tableMappings() {
 		if err := d.queryTable(ctx, mapping, results); err != nil {
-			log.Printf("[steampipe] error querying %s: %v", mapping.Table, err)
-			// Continue with remaining tables.
+			// Classify the error for cleaner output.
+			errStr := err.Error()
+			switch {
+			case contains(errStr, "does not exist"):
+				log.Printf("[steampipe] ⚠ table %s not available (skipped)", mapping.Table)
+			case contains(errStr, "AccessDenied") || contains(errStr, "UnauthorizedOperation") || contains(errStr, "AccessDeniedException"):
+				log.Printf("[steampipe] 🔒 %s: insufficient permissions (skipped)", mapping.Table)
+			default:
+				log.Printf("[steampipe] ❌ %s: %v", mapping.Table, err)
+			}
 		}
 	}
 	return nil
@@ -64,7 +73,7 @@ func (d *SteampipeDiscoverer) queryTable(ctx context.Context, mapping tableMappi
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
-			log.Printf("[steampipe] error scanning row from %s: %v", mapping.Table, err)
+			// Row-level errors (e.g., permission denied on a specific resource) — skip silently.
 			continue
 		}
 
@@ -133,9 +142,9 @@ func awsTableMappings() []tableMapping {
 	return []tableMapping{
 		{Table: "aws_vpc", ResourceType: provider.ResourceTypeVPC, IDColumn: "arn", NameColumn: "title", RegionColumn: "region"},
 		{Table: "aws_vpc_subnet", ResourceType: provider.ResourceTypeSubnet, IDColumn: "subnet_arn", NameColumn: "title", RegionColumn: "region"},
-		{Table: "aws_route_table", ResourceType: provider.ResourceTypeRouteTable, IDColumn: "route_table_id", NameColumn: "title", RegionColumn: "region"},
-		{Table: "aws_internet_gateway", ResourceType: provider.ResourceTypeIGW, IDColumn: "internet_gateway_id", NameColumn: "title", RegionColumn: "region"},
-		{Table: "aws_nat_gateway", ResourceType: provider.ResourceTypeNATGW, IDColumn: "arn", NameColumn: "title", RegionColumn: "region"},
+		{Table: "aws_vpc_route_table", ResourceType: provider.ResourceTypeRouteTable, IDColumn: "route_table_id", NameColumn: "title", RegionColumn: "region"},
+		{Table: "aws_vpc_internet_gateway", ResourceType: provider.ResourceTypeIGW, IDColumn: "internet_gateway_id", NameColumn: "title", RegionColumn: "region"},
+		{Table: "aws_vpc_nat_gateway", ResourceType: provider.ResourceTypeNATGW, IDColumn: "arn", NameColumn: "title", RegionColumn: "region"},
 		{Table: "aws_ec2_transit_gateway", ResourceType: provider.ResourceTypeTGW, IDColumn: "transit_gateway_arn", NameColumn: "title", RegionColumn: "region"},
 		{Table: "aws_vpc_security_group", ResourceType: provider.ResourceTypeSecurityGroup, IDColumn: "arn", NameColumn: "group_name", RegionColumn: "region"},
 		{Table: "aws_ec2_instance", ResourceType: provider.ResourceTypeEC2Instance, IDColumn: "arn", NameColumn: "title", RegionColumn: "region"},
@@ -232,4 +241,9 @@ func extractTags(metadata map[string]any) map[string]string {
 	}
 
 	return tags
+}
+
+// contains is a simple string-contains check for error classification.
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
 }

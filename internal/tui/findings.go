@@ -17,26 +17,42 @@ type findingsView struct {
 func (v *findingsView) render(width, height int) string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("🔍 Security Findings"))
-	b.WriteString("\n")
+	b.WriteString(titleStyle.Render("  🔍 Security Findings"))
+	b.WriteString("\n\n")
 
+	// Filter bar.
 	if v.severityFilter != "" {
-		b.WriteString(fmt.Sprintf("  Filter: %s (press 'f' to clear)\n", v.severityFilter))
+		b.WriteString(regionBadgeStyle.Render(fmt.Sprintf("  Filter: %s", strings.ToUpper(v.severityFilter))))
+		b.WriteString(dimNavStyle.Render("  (x to clear)"))
 	} else {
-		b.WriteString("  Press c/h/m/l to filter by severity, f to clear\n")
+		b.WriteString(dimNavStyle.Render("  c:critical  h:high  m:medium  l:low  x:clear"))
 	}
 	b.WriteString("\n")
 
 	filtered := v.filteredFindings()
-	b.WriteString(fmt.Sprintf("  Showing %d of %d findings\n\n", len(filtered), len(v.findings)))
+	b.WriteString(dimNavStyle.Render(fmt.Sprintf("  %d of %d findings", len(filtered), len(v.findings))))
+	b.WriteString("\n\n")
 
-	maxRows := height - 10
+	if len(filtered) == 0 {
+		if len(v.findings) == 0 {
+			b.WriteString(passStyle.Render("  ✓ No security findings — all checks passed!"))
+		} else {
+			b.WriteString(normalStyle.Render("  No findings match the current filter."))
+		}
+		return b.String()
+	}
+
+	// Visible rows.
+	maxRows := height - 11
 	if maxRows < 5 {
 		maxRows = 5
 	}
 
-	if v.offset > len(filtered)-maxRows {
-		v.offset = max(0, len(filtered)-maxRows)
+	if v.cursor < v.offset {
+		v.offset = v.cursor
+	}
+	if v.cursor >= v.offset+maxRows {
+		v.offset = v.cursor - maxRows + 1
 	}
 
 	end := v.offset + maxRows
@@ -47,41 +63,59 @@ func (v *findingsView) render(width, height int) string {
 	for i := v.offset; i < end; i++ {
 		f := filtered[i]
 
-		var sevStyle = normalStyle
+		var sevLabel string
 		switch f.Severity {
 		case "critical":
-			sevStyle = severityCriticalStyle
+			sevLabel = severityCriticalStyle.Render("CRIT")
 		case "high":
-			sevStyle = severityHighStyle
+			sevLabel = severityHighStyle.Render("HIGH")
 		case "medium":
-			sevStyle = severityMediumStyle
+			sevLabel = severityMediumStyle.Render("MED ")
 		case "low":
-			sevStyle = severityLowStyle
+			sevLabel = severityLowStyle.Render("LOW ")
+		default:
+			sevLabel = normalStyle.Render("INFO")
 		}
 
-		sevLabel := sevStyle.Render(fmt.Sprintf("%-8s", strings.ToUpper(f.Severity)))
-
 		desc := f.Description
-		if len(desc) > 70 {
-			desc = desc[:67] + "..."
+		maxDesc := width - 20
+		if maxDesc < 40 {
+			maxDesc = 40
+		}
+		if len(desc) > maxDesc {
+			desc = desc[:maxDesc-3] + "..."
 		}
 
 		line := fmt.Sprintf("  %s  %s", sevLabel, desc)
 		if i == v.cursor {
 			b.WriteString(selectedStyle.Render(line))
 		} else {
-			b.WriteString(line)
+			b.WriteString(normalStyle.Render(line))
 		}
 		b.WriteString("\n")
 
-		// Show recommendation for selected item.
-		if i == v.cursor && f.Recommendation != "" {
-			rec := f.Recommendation
-			if len(rec) > 80 {
-				rec = rec[:77] + "..."
+		// Show details for selected item.
+		if i == v.cursor {
+			b.WriteString(dimNavStyle.Render(fmt.Sprintf("         Resource: %s", truncate(f.ResourceID, 60))))
+			b.WriteString("\n")
+			if f.Recommendation != "" {
+				b.WriteString(dimNavStyle.Render(fmt.Sprintf("         Fix: %s", truncate(f.Recommendation, 70))))
+				b.WriteString("\n")
 			}
-			b.WriteString(fmt.Sprintf("           %s\n", helpStyle.Render("→ "+rec)))
+			if f.StandardName != "" {
+				b.WriteString(dimNavStyle.Render(fmt.Sprintf("         Standard: %s [%s]", f.StandardName, f.ControlID)))
+				b.WriteString("\n")
+			}
 		}
+	}
+
+	// Scroll indicator.
+	if len(filtered) > maxRows {
+		pct := 0
+		if len(filtered)-maxRows > 0 {
+			pct = (v.offset * 100) / (len(filtered) - maxRows)
+		}
+		b.WriteString(dimNavStyle.Render(fmt.Sprintf("\n  ↕ scroll %d%%", pct)))
 	}
 
 	return b.String()
@@ -98,4 +132,11 @@ func (v *findingsView) filteredFindings() []storage.Finding {
 		}
 	}
 	return filtered
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }
