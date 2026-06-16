@@ -105,7 +105,8 @@ tasks:
     cmds:
       - cmd: steampipe service status
         ignore_error: true
-      - psql "postgres://steampipe@localhost:9193/steampipe" -c "SELECT 1" > /dev/null 2>&1 && echo "✅ Steampipe is accessible" || echo "❌ Steampipe not running. Start with: steampipe service start"
+      - cmd: psql "postgres://steampipe@localhost:9193/steampipe" -c "SELECT 1" > /dev/null 2>&1 && echo "Steampipe is accessible" || echo "Steampipe not running. Start with steampipe service start"
+        ignore_error: true
 
   setup:
     desc: First-time setup (install deps, create config dir)
