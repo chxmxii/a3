@@ -114,6 +114,13 @@ var pricingCatalog = map[string]float64{
 	"r5.8xlarge":  2.016,
 	"r5.12xlarge": 3.024,
 
+	// R5a
+	"r5a.large":   0.113,
+	"r5a.xlarge":  0.226,
+	"r5a.2xlarge": 0.452,
+	"r5a.4xlarge": 0.904,
+	"r5a.8xlarge": 1.808,
+
 	// R6i
 	"r6i.large":   0.126,
 	"r6i.xlarge":  0.252,

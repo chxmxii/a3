@@ -268,6 +268,273 @@ func (v *inventoryView) renderDetail(width, height int) string {
 }
 
 func (v *inventoryView) buildDetailLines(r *storage.Resource, width int) []string {
+	// Type-aware rendering for specific resource types.
+	switch r.ResourceType {
+	case "security_group":
+		return v.buildSGDetail(r, width)
+	case "iam_policy":
+		return v.buildPolicyDetail(r, width)
+	default:
+		return v.buildGenericDetail(r, width)
+	}
+}
+
+func (v *inventoryView) buildSGDetail(r *storage.Resource, width int) []string {
+	var lines []string
+	meta := r.RawMetadata
+
+	lines = append(lines, titleStyle.Render(fmt.Sprintf("  Security Group: %s", r.Name)))
+	lines = append(lines, "")
+
+	// Basic info.
+	lines = append(lines, headerStyle.Render("  ┌─ Info"))
+	lines = append(lines, fmt.Sprintf("  │ Group ID:    %s", getDetailStr(meta, "group_id")))
+	lines = append(lines, fmt.Sprintf("  │ Name:        %s", getDetailStr(meta, "group_name")))
+	lines = append(lines, fmt.Sprintf("  │ Description: %s", getDetailStr(meta, "description")))
+	lines = append(lines, fmt.Sprintf("  │ VPC:         %s", getDetailStr(meta, "vpc_id")))
+	lines = append(lines, fmt.Sprintf("  │ Region:      %s", r.Region))
+	lines = append(lines, "  └─")
+	lines = append(lines, "")
+
+	// Inbound rules.
+	lines = append(lines, headerStyle.Render("  ┌─ Inbound Rules"))
+	lines = append(lines, fmt.Sprintf("  │ %-10s %-12s %-22s %s", "PROTO", "PORTS", "SOURCE", "DESCRIPTION"))
+	lines = append(lines, "  │ "+strings.Repeat("─", 70))
+
+	ipPerms, _ := meta["ip_permissions"].([]any)
+	if len(ipPerms) == 0 {
+		lines = append(lines, "  │ (none)")
+	}
+	for _, perm := range ipPerms {
+		permMap, ok := perm.(map[string]any)
+		if !ok {
+			continue
+		}
+		proto := getDetailStr(permMap, "ip_protocol")
+		if proto == "-1" {
+			proto = "ALL"
+		}
+		fromPort, _ := permMap["from_port"].(float64)
+		toPort, _ := permMap["to_port"].(float64)
+		portRange := "ALL"
+		if proto != "ALL" {
+			if fromPort == toPort {
+				portRange = fmt.Sprintf("%.0f", fromPort)
+			} else {
+				portRange = fmt.Sprintf("%.0f-%.0f", fromPort, toPort)
+			}
+		}
+
+		// IP ranges.
+		ipRanges, _ := permMap["ip_ranges"].([]any)
+		for _, ipr := range ipRanges {
+			iprMap, ok := ipr.(map[string]any)
+			if !ok {
+				continue
+			}
+			cidr := getDetailStr(iprMap, "cidr_ip")
+			desc := getDetailStr(iprMap, "description")
+			style := normalStyle
+			if cidr == "0.0.0.0/0" || cidr == "::/0" {
+				style = severityHighStyle
+			}
+			lines = append(lines, style.Render(fmt.Sprintf("  │ %-10s %-12s %-22s %s", proto, portRange, cidr, desc)))
+		}
+
+		// Security group references.
+		sgRefs, _ := permMap["user_id_group_pairs"].([]any)
+		for _, sgr := range sgRefs {
+			sgrMap, ok := sgr.(map[string]any)
+			if !ok {
+				continue
+			}
+			sgID := getDetailStr(sgrMap, "group_id")
+			desc := getDetailStr(sgrMap, "description")
+			lines = append(lines, fmt.Sprintf("  │ %-10s %-12s %-22s %s", proto, portRange, "sg:"+sgID, desc))
+		}
+	}
+	lines = append(lines, "  └─")
+	lines = append(lines, "")
+
+	// Outbound rules.
+	lines = append(lines, headerStyle.Render("  ┌─ Outbound Rules"))
+	lines = append(lines, fmt.Sprintf("  │ %-10s %-12s %-22s %s", "PROTO", "PORTS", "DESTINATION", "DESCRIPTION"))
+	lines = append(lines, "  │ "+strings.Repeat("─", 70))
+
+	ipPermsEgress, _ := meta["ip_permissions_egress"].([]any)
+	if len(ipPermsEgress) == 0 {
+		lines = append(lines, "  │ (none)")
+	}
+	for _, perm := range ipPermsEgress {
+		permMap, ok := perm.(map[string]any)
+		if !ok {
+			continue
+		}
+		proto := getDetailStr(permMap, "ip_protocol")
+		if proto == "-1" {
+			proto = "ALL"
+		}
+		fromPort, _ := permMap["from_port"].(float64)
+		toPort, _ := permMap["to_port"].(float64)
+		portRange := "ALL"
+		if proto != "ALL" {
+			if fromPort == toPort {
+				portRange = fmt.Sprintf("%.0f", fromPort)
+			} else {
+				portRange = fmt.Sprintf("%.0f-%.0f", fromPort, toPort)
+			}
+		}
+
+		ipRanges, _ := permMap["ip_ranges"].([]any)
+		for _, ipr := range ipRanges {
+			iprMap, ok := ipr.(map[string]any)
+			if !ok {
+				continue
+			}
+			cidr := getDetailStr(iprMap, "cidr_ip")
+			desc := getDetailStr(iprMap, "description")
+			lines = append(lines, fmt.Sprintf("  │ %-10s %-12s %-22s %s", proto, portRange, cidr, desc))
+		}
+	}
+	lines = append(lines, "  └─")
+
+	return lines
+}
+
+func (v *inventoryView) buildPolicyDetail(r *storage.Resource, width int) []string {
+	var lines []string
+	meta := r.RawMetadata
+
+	lines = append(lines, titleStyle.Render(fmt.Sprintf("  IAM Policy: %s", r.Name)))
+	lines = append(lines, "")
+
+	// Basic info.
+	lines = append(lines, headerStyle.Render("  ┌─ Info"))
+	lines = append(lines, fmt.Sprintf("  │ ARN:          %s", r.ResourceID))
+	lines = append(lines, fmt.Sprintf("  │ Name:         %s", r.Name))
+	policyID := getDetailStr(meta, "policy_id")
+	if policyID != "" {
+		lines = append(lines, fmt.Sprintf("  │ Policy ID:    %s", policyID))
+	}
+	isManaged := getDetailStr(meta, "is_aws_managed")
+	if isManaged != "" {
+		lines = append(lines, fmt.Sprintf("  │ AWS Managed:  %s", isManaged))
+	}
+	attachCount := meta["attachment_count"]
+	if attachCount != nil {
+		lines = append(lines, fmt.Sprintf("  │ Attached to:  %v entities", attachCount))
+	}
+	lines = append(lines, "  └─")
+	lines = append(lines, "")
+
+	// Policy document.
+	policyDoc := meta["policy"]
+	if policyDoc == nil {
+		policyDoc = meta["policy_std"]
+	}
+	if policyDoc == nil {
+		policyDoc = meta["document"]
+	}
+
+	if policyDoc != nil {
+		lines = append(lines, headerStyle.Render("  ┌─ Policy Document"))
+		lines = append(lines, v.renderPolicyDoc(policyDoc)...)
+		lines = append(lines, "  └─")
+	} else {
+		lines = append(lines, dimNavStyle.Render("  (Policy document not available — requires iam:GetPolicyVersion permission)"))
+	}
+
+	return lines
+}
+
+func (v *inventoryView) renderPolicyDoc(doc any) []string {
+	var lines []string
+
+	switch d := doc.(type) {
+	case map[string]any:
+		// Render Statement array if present.
+		stmts, _ := d["Statement"].([]any)
+		if stmts == nil {
+			stmts, _ = d["statement"].([]any)
+		}
+		if len(stmts) > 0 {
+			for i, stmt := range stmts {
+				stmtMap, ok := stmt.(map[string]any)
+				if !ok {
+					continue
+				}
+				effect := getDetailStr(stmtMap, "Effect")
+				if effect == "" {
+					effect = getDetailStr(stmtMap, "effect")
+				}
+
+				effectStyle := passStyle
+				if effect == "Deny" {
+					effectStyle = failStyle
+				}
+
+				lines = append(lines, fmt.Sprintf("  │ Statement %d: %s", i+1, effectStyle.Render(effect)))
+
+				// Actions.
+				actions := extractStringList(stmtMap, "Action")
+				if len(actions) == 0 {
+					actions = extractStringList(stmtMap, "action")
+				}
+				for _, a := range actions {
+					lines = append(lines, fmt.Sprintf("  │   Action:   %s", a))
+				}
+
+				// Resources.
+				resources := extractStringList(stmtMap, "Resource")
+				if len(resources) == 0 {
+					resources = extractStringList(stmtMap, "resource")
+				}
+				for _, res := range resources {
+					lines = append(lines, fmt.Sprintf("  │   Resource: %s", res))
+				}
+
+				lines = append(lines, "  │")
+			}
+		} else {
+			// No Statement key — dump as formatted key-value.
+			for k, val := range d {
+				lines = append(lines, fmt.Sprintf("  │ %s: %v", k, val))
+			}
+		}
+	case string:
+		// JSON string — show line by line.
+		for _, line := range strings.Split(d, "\n") {
+			lines = append(lines, "  │ "+line)
+		}
+	default:
+		lines = append(lines, fmt.Sprintf("  │ %v", doc))
+	}
+
+	return lines
+}
+
+func extractStringList(m map[string]any, key string) []string {
+	val, ok := m[key]
+	if !ok || val == nil {
+		return nil
+	}
+	switch v := val.(type) {
+	case string:
+		return []string{v}
+	case []any:
+		var result []string
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	default:
+		return []string{fmt.Sprintf("%v", v)}
+	}
+}
+
+func (v *inventoryView) buildGenericDetail(r *storage.Resource, width int) []string {
 	var lines []string
 
 	lines = append(lines, titleStyle.Render(fmt.Sprintf("  Resource: %s", r.Name)))
@@ -320,6 +587,20 @@ func (v *inventoryView) buildDetailLines(r *storage.Resource, width int) []strin
 	}
 
 	return lines
+}
+
+func getDetailStr(m map[string]any, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", v)
 }
 
 func formatMetadataValue(val any, maxLen int) string {
