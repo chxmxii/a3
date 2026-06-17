@@ -100,6 +100,7 @@ const (
 	ResourceTypeTargetGroup   ResourceType = "target_group"
 	ResourceTypeEKSNodeGroup  ResourceType = "eks_node_group"
 	ResourceTypeEFS          ResourceType = "efs_file_system"
+	ResourceTypeASG          ResourceType = "autoscaling_group"
 )
 
 // Common OCI resource types

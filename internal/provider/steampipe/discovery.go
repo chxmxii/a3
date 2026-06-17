@@ -272,6 +272,7 @@ func awsTableMappings() []tableMapping {
 		{Table: "aws_secretsmanager_secret", ResourceType: provider.ResourceTypeSecret, IDColumn: "arn", NameColumn: "name", RegionColumn: "region", FallbackColumns: []string{"arn", "name", "region", "tags"}},
 		{Table: "aws_ebs_volume", ResourceType: provider.ResourceTypeEBSVolume, IDColumn: "arn", NameColumn: "title", RegionColumn: "region"},
 		{Table: "aws_efs_file_system", ResourceType: provider.ResourceTypeEFS, IDColumn: "arn", NameColumn: "name", RegionColumn: "region", FallbackColumns: []string{"arn", "file_system_id", "name", "life_cycle_state", "size_in_bytes", "region", "tags"}},
+		{Table: "aws_ec2_autoscaling_group", ResourceType: provider.ResourceTypeASG, IDColumn: "autoscaling_group_arn", NameColumn: "autoscaling_group_name", RegionColumn: "region", FallbackColumns: []string{"autoscaling_group_arn", "autoscaling_group_name", "min_size", "max_size", "desired_capacity", "region"}},
 		{Table: "aws_eks_node_group", ResourceType: provider.ResourceTypeEKSNodeGroup, IDColumn: "arn", NameColumn: "nodegroup_name", RegionColumn: "region"},
 		{Table: "aws_ec2_target_group", ResourceType: provider.ResourceTypeTargetGroup, IDColumn: "target_group_arn", NameColumn: "target_group_name", RegionColumn: "region", FallbackColumns: []string{"target_group_arn", "target_group_name", "protocol", "port", "vpc_id", "region"}},
 	}
