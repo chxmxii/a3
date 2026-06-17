@@ -109,3 +109,8 @@ func (s *SteampipeProvider) Close() {
 		s.pool.Close()
 	}
 }
+
+// Pool returns the underlying connection pool for direct queries.
+func (s *SteampipeProvider) Pool() *pgxpool.Pool {
+	return s.pool
+}

@@ -244,13 +244,21 @@ func runAssessment(profileName, connString string, noTUI bool) error {
 	}
 
 	// Step 7: Cost.
-	sp7 := newSpinner("Estimating costs...")
-	costEstimator := cost.NewEstimator(store)
-	costSummary, err := costEstimator.Estimate(assessmentID)
-	if err != nil {
-		sp7.fail("Cost estimation unavailable")
+	sp7 := newSpinner("Fetching cost data...")
+	// Try real billing data from AWS Cost Explorer (via Steampipe) first.
+	billingData, billingErr := cost.QueryBilling(ctx, sp.Pool())
+	if billingErr == nil && billingData != nil {
+		cost.StoreBillingCosts(store, assessmentID, billingData)
+		sp7.succeed(fmt.Sprintf("Actual cost: $%.2f/month (%s)", billingData.TotalMonthlyCost, billingData.Message))
 	} else {
-		sp7.succeed(fmt.Sprintf("Estimated $%.2f/month", costSummary.TotalMonthlyCost))
+		// Fallback to static estimation.
+		costEstimator := cost.NewEstimator(store)
+		costSummary, err := costEstimator.Estimate(assessmentID)
+		if err != nil {
+			sp7.fail("Cost estimation unavailable")
+		} else {
+			sp7.succeed(fmt.Sprintf("Estimated $%.2f/month (static catalog — real billing data unavailable)", costSummary.TotalMonthlyCost))
+		}
 	}
 
 	// Step 8: Checklist.
