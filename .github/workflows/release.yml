@@ -15,7 +15,30 @@ permissions:
 
 jobs:
   binaries:
-    runs-on: ubuntu-latest
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ${{ matrix.runner }}
+    # a3 depends on github.com/mattn/go-sqlite3, which requires cgo. Every
+    # target must be built with CGO_ENABLED=1 on a runner that has a matching
+    # C toolchain, otherwise the published binary ships a non-functional sqlite
+    # stub that fails at runtime ("compiled with CGO_ENABLED=0 ... requires cgo").
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-latest
+            cc: aarch64-linux-gnu-gcc
+            apt: gcc-aarch64-linux-gnu
+          - goos: darwin
+            goarch: amd64
+            runner: macos-13      # Intel runner -> native cgo
+          - goos: darwin
+            goarch: arm64
+            runner: macos-14      # Apple Silicon runner -> native cgo
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +47,12 @@ jobs:
           go-version: '1.25'
           cache: true
 
+      - name: Install cross toolchain
+        if: matrix.apt != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.apt }}
+
       - name: Get build info
         id: info
         run: |
@@ -31,8 +60,12 @@ jobs:
           echo "commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "build_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
 
-      - name: Build binaries
+      - name: Build binary
         env:
+          CGO_ENABLED: '1'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CC: ${{ matrix.cc }}
           LDFLAGS: >-
             -s -w
             -X main.version=${{ steps.info.outputs.version }}
@@ -40,11 +73,24 @@ jobs:
             -X main.buildTime=${{ steps.info.outputs.build_time }}
         run: |
           mkdir -p dist
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/a3-linux-amd64 ./cmd/a3/
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build -ldflags "$LDFLAGS" -o dist/a3-linux-arm64 ./cmd/a3/ || \
-            GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -tags nosqlite3 -o dist/a3-linux-arm64 ./cmd/a3/ || true
-          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/a3-darwin-amd64 ./cmd/a3/ || true
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/a3-darwin-arm64 ./cmd/a3/ || true
+          go build -ldflags "$LDFLAGS" -o dist/a3-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/a3/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: a3-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/a3-${{ matrix.goos }}-${{ matrix.goarch }}
+          if-no-files-found: error
+
+  release:
+    runs-on: ubuntu-latest
+    needs: binaries
+    steps:
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
