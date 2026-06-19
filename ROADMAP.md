@@ -21,6 +21,7 @@
 - [ ] ECS/Fargate resource discovery and sizing
 - [ ] CloudWatch alarm coverage checks
 - [ ] Tag compliance rules (required tags, naming conventions)
+- [ ] Generate least-privilege policy (e.g; 3a generate-policy --provider <aws>)
 
 ## v0.3 — Multi-Account and Comparison
 
