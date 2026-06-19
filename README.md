@@ -10,7 +10,7 @@ Supports AWS and OCI via Steampipe.
 
 ## Requirements
 
-- Go 1.24+
+- Go 1.25+
 - Steampipe with the AWS or OCI plugin installed and configured
 - Valid cloud credentials (read-only access is sufficient)
 
@@ -45,6 +45,7 @@ go build -o bin/3a ./cmd/3a/
 
 # List profiles
 3a profiles list
+
 ```
 
 ## What it does
