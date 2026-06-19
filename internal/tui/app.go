@@ -157,6 +157,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.inventory.detailScroll = 0
 			}
 
+		// Architecture mode toggle.
+		case "n":
+			if m.activeView == ViewArchitecture {
+				m.architecture.mode = ArchModeNetwork
+				m.architecture.scrollOffset = 0
+			}
+		case "v":
+			if m.activeView == ViewArchitecture {
+				m.architecture.mode = ArchModeResource
+				m.architecture.scrollOffset = 0
+			}
+
 		// Region cycling in Inventory.
 		case "r":
 			if m.activeView == ViewInventory {
@@ -384,6 +396,8 @@ func (m Model) renderHelp() string {
 		} else {
 			base += "  enter:details  r/R:region  t/T:type  x:clear"
 		}
+	case ViewArchitecture:
+		base += "  n:network  v:resource"
 	case ViewFindings:
 		base += "  c/h/m/l:severity  x:clear"
 	}
