@@ -51,4 +51,19 @@ var (
 	regionBadgeStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#818CF8")).
 				Bold(true)
+
+	keyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#60A5FA"))
+
+	valueStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#E5E7EB"))
+
+	routeLocalStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6EE7B7"))
+
+	routeIGWStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FCD34D"))
+
+	routeNATStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FB923C"))
 )

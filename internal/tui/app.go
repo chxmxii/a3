@@ -172,6 +172,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeView == ViewInventory {
 				m.inventory.nextType()
 			}
+		case "T":
+			if m.activeView == ViewInventory {
+				m.inventory.prevType()
+			}
 
 		// Clear filters.
 		case "x":
@@ -378,7 +382,7 @@ func (m Model) renderHelp() string {
 		if m.inventory.showDetail {
 			base += "  esc/x:back  ↑↓:scroll"
 		} else {
-			base += "  enter:details  r/R:region  t:type  x:clear"
+			base += "  enter:details  r/R:region  t/T:type  x:clear"
 		}
 	case ViewFindings:
 		base += "  c/h/m/l:severity  x:clear"

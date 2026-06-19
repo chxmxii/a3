@@ -60,6 +60,24 @@ func (v *inventoryView) nextType() {
 	v.offset = 0
 }
 
+func (v *inventoryView) prevType() {
+	if v.showDetail {
+		return
+	}
+	types := v.availableTypes()
+	v.typeIdx--
+	if v.typeIdx < -1 {
+		v.typeIdx = len(types) - 1
+		v.typeFilter = types[v.typeIdx]
+	} else if v.typeIdx == -1 {
+		v.typeFilter = ""
+	} else {
+		v.typeFilter = types[v.typeIdx]
+	}
+	v.cursor = 0
+	v.offset = 0
+}
+
 func (v *inventoryView) clearFilters() {
 	if v.showDetail {
 		v.showDetail = false
@@ -630,7 +648,20 @@ func (v *inventoryView) buildRouteTableDetail(r *storage.Resource, width int) []
 			state = "active"
 		}
 
-		lines = append(lines, fmt.Sprintf("  │ %-20s %-30s %-10s", dest, target, state))
+		// Color the target based on type.
+		targetStyled := target
+		switch {
+		case target == "local":
+			targetStyled = routeLocalStyle.Render(target)
+		case len(target) > 4 && target[:4] == "igw-":
+			targetStyled = routeIGWStyle.Render(target)
+		case len(target) > 4 && target[:4] == "nat-":
+			targetStyled = routeNATStyle.Render(target)
+		case len(target) > 4 && target[:4] == "tgw-":
+			targetStyled = regionBadgeStyle.Render(target)
+		}
+
+		lines = append(lines, fmt.Sprintf("  │ %-20s %-30s %-10s", dest, targetStyled, state))
 	}
 	lines = append(lines, "  └─")
 	lines = append(lines, "")
@@ -706,7 +737,7 @@ func (v *inventoryView) buildGenericDetail(r *storage.Resource, width int) []str
 		for _, k := range keys {
 			val := r.RawMetadata[k]
 			valStr := formatMetadataValue(val, width-30)
-			lines = append(lines, fmt.Sprintf("  │ %-25s %s", k+":", valStr))
+			lines = append(lines, fmt.Sprintf("  │ %s %s", keyStyle.Render(fmt.Sprintf("%-25s", k+":")), valueStyle.Render(valStr)))
 		}
 		lines = append(lines, "  └─")
 	}
