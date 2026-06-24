@@ -20,6 +20,8 @@ func NewReconstructor(store *storage.Store, providerType string) *Reconstructor 
 		rules = awsRelationshipRules()
 	case "oci":
 		rules = ociRelationshipRules()
+	case "azure":
+		rules = azureRelationshipRules()
 	}
 	return &Reconstructor{
 		store: store,
@@ -48,7 +50,7 @@ func (r *Reconstructor) Reconstruct(assessmentID string) error {
 		for _, key := range []string{"vpc_id", "vpcId", "subnet_id", "subnetId",
 			"instance_id", "instanceId", "cluster_name", "group_id", "groupId",
 			"route_table_id", "routeTableId", "internet_gateway_id", "nat_gateway_id",
-			"transit_gateway_id", "id", "vcn_id"} {
+			"transit_gateway_id", "id", "vcn_id", "name"} {
 			if val := getStr(res.RawMetadata, key); val != "" {
 				// Only store if not already taken (first match wins).
 				mapKey := key + ":" + val

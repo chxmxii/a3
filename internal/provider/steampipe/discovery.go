@@ -241,10 +241,14 @@ func (d *SteampipeDiscoverer) buildResource(mapping tableMapping, metadata map[s
 
 // tableMappings returns the table-to-resource-type mappings for the configured provider.
 func (d *SteampipeDiscoverer) tableMappings() []tableMapping {
-	if d.providerType == "oci" {
+	switch d.providerType {
+	case "oci":
 		return ociTableMappings()
+	case "azure":
+		return azureTableMappings()
+	default:
+		return awsTableMappings()
 	}
-	return awsTableMappings()
 }
 
 func awsTableMappings() []tableMapping {
@@ -297,6 +301,30 @@ func ociTableMappings() []tableMapping {
 		{Table: "oci_identity_compartment", ResourceType: provider.ResourceTypeCompartment, IDColumn: "id", NameColumn: "name", RegionColumn: ""},
 		{Table: "oci_database_db_system", ResourceType: provider.ResourceTypeOCIDB, IDColumn: "id", NameColumn: "display_name", RegionColumn: "region"},
 		{Table: "oci_core_load_balancer", ResourceType: provider.ResourceTypeOCILB, IDColumn: "id", NameColumn: "display_name", RegionColumn: "region"},
+	}
+}
+
+func azureTableMappings() []tableMapping {
+	// Azure Steampipe tables expose name/id/region/resource_group/tags columns.
+	return []tableMapping{
+		{Table: "azure_resource_group", ResourceType: provider.ResourceTypeResourceGroup, IDColumn: "id", NameColumn: "name", RegionColumn: "region"},
+		{Table: "azure_virtual_network", ResourceType: provider.ResourceTypeVNet, IDColumn: "id", NameColumn: "name", RegionColumn: "region"},
+		{Table: "azure_subnet", ResourceType: provider.ResourceTypeAzureSubnet, IDColumn: "id", NameColumn: "name", RegionColumn: "region", FallbackColumns: []string{"id", "name", "virtual_network_name", "resource_group", "address_prefix", "network_security_group_id", "route_table_id"}},
+		{Table: "azure_network_security_group", ResourceType: provider.ResourceTypeAzureNSG, IDColumn: "id", NameColumn: "name", RegionColumn: "region", FallbackColumns: []string{"id", "name", "resource_group", "security_rules", "default_security_rules", "region", "tags"}},
+		{Table: "azure_route_table", ResourceType: provider.ResourceTypeAzureRouteTable, IDColumn: "id", NameColumn: "name", RegionColumn: "region"},
+		{Table: "azure_nat_gateway", ResourceType: provider.ResourceTypeAzureNATGW, IDColumn: "id", NameColumn: "name", RegionColumn: "region"},
+		{Table: "azure_public_ip", ResourceType: provider.ResourceTypePublicIP, IDColumn: "id", NameColumn: "name", RegionColumn: "region"},
+		{Table: "azure_compute_virtual_machine", ResourceType: provider.ResourceTypeVirtualMachine, IDColumn: "id", NameColumn: "name", RegionColumn: "region", FallbackColumns: []string{"id", "name", "resource_group", "vm_id", "size", "power_state", "region", "tags"}},
+		{Table: "azure_compute_disk", ResourceType: provider.ResourceTypeManagedDisk, IDColumn: "id", NameColumn: "name", RegionColumn: "region", FallbackColumns: []string{"id", "name", "resource_group", "disk_size_gb", "sku_name", "encryption_type", "region", "tags"}},
+		{Table: "azure_kubernetes_cluster", ResourceType: provider.ResourceTypeAKSCluster, IDColumn: "id", NameColumn: "name", RegionColumn: "region"},
+		{Table: "azure_storage_account", ResourceType: provider.ResourceTypeStorageAccount, IDColumn: "id", NameColumn: "name", RegionColumn: "region", FallbackColumns: []string{"id", "name", "resource_group", "allow_blob_public_access", "enable_https_traffic_only", "region", "tags"}},
+		{Table: "azure_sql_server", ResourceType: provider.ResourceTypeSQLServer, IDColumn: "id", NameColumn: "name", RegionColumn: "region", FallbackColumns: []string{"id", "name", "resource_group", "public_network_access", "region", "tags"}},
+		{Table: "azure_sql_database", ResourceType: provider.ResourceTypeSQLDatabase, IDColumn: "id", NameColumn: "name", RegionColumn: "region"},
+		{Table: "azure_lb", ResourceType: provider.ResourceTypeAzureLB, IDColumn: "id", NameColumn: "name", RegionColumn: "region"},
+		{Table: "azure_application_gateway", ResourceType: provider.ResourceTypeAppGateway, IDColumn: "id", NameColumn: "name", RegionColumn: "region"},
+		{Table: "azure_key_vault", ResourceType: provider.ResourceTypeKeyVault, IDColumn: "id", NameColumn: "name", RegionColumn: "region"},
+		{Table: "azure_app_service_web_app", ResourceType: provider.ResourceTypeAppService, IDColumn: "id", NameColumn: "name", RegionColumn: "region"},
+		{Table: "azure_cosmosdb_account", ResourceType: provider.ResourceTypeCosmosDB, IDColumn: "id", NameColumn: "name", RegionColumn: "region"},
 	}
 }
 

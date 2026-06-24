@@ -19,6 +19,7 @@ import (
 	"github.com/chxmxii/a3/internal/architecture"
 	"github.com/chxmxii/a3/internal/assessment"
 	awsrules "github.com/chxmxii/a3/internal/assessment/rules/aws"
+	azurerules "github.com/chxmxii/a3/internal/assessment/rules/azure"
 	ocirules "github.com/chxmxii/a3/internal/assessment/rules/oci"
 	"github.com/chxmxii/a3/internal/checklist"
 	"github.com/chxmxii/a3/internal/config"
@@ -229,6 +230,8 @@ func runAssessment(profileName, connString string, noTUI bool) error {
 		rules = awsrules.AllRules()
 	case "oci":
 		rules = ocirules.AllRules()
+	case "azure":
+		rules = azurerules.AllRules()
 	}
 	assessEngine := assessment.NewEngine(store, rules)
 	_ = assessEngine.Run(ctx, assessmentID)

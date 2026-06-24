@@ -247,3 +247,64 @@ func ociRelationshipRules() []RelationshipRule {
 		},
 	}
 }
+
+func azureRelationshipRules() []RelationshipRule {
+	return []RelationshipRule{
+		// Subnet → Virtual Network (Azure subnets carry the parent vnet name)
+		&metadataLinkRule{
+			sourceType:       "azure_subnet",
+			targetType:       "vnet",
+			metadataKey:      "virtual_network_name",
+			relationshipType: "belongs_to",
+			lookupPrefix:     "name",
+		},
+		// Subnet → NSG
+		&metadataLinkRule{
+			sourceType:       "azure_subnet",
+			targetType:       "azure_nsg",
+			metadataKey:      "network_security_group_id",
+			relationshipType: "uses",
+			lookupPrefix:     "resource_id",
+		},
+		// Subnet → Route Table
+		&metadataLinkRule{
+			sourceType:       "azure_subnet",
+			targetType:       "azure_route_table",
+			metadataKey:      "route_table_id",
+			relationshipType: "uses",
+			lookupPrefix:     "resource_id",
+		},
+		// Virtual Network → Resource Group
+		&metadataLinkRule{
+			sourceType:       "vnet",
+			targetType:       "resource_group",
+			metadataKey:      "resource_group",
+			relationshipType: "belongs_to",
+			lookupPrefix:     "name",
+		},
+		// Virtual Machine → Resource Group
+		&metadataLinkRule{
+			sourceType:       "virtual_machine",
+			targetType:       "resource_group",
+			metadataKey:      "resource_group",
+			relationshipType: "belongs_to",
+			lookupPrefix:     "name",
+		},
+		// Storage Account → Resource Group
+		&metadataLinkRule{
+			sourceType:       "storage_account",
+			targetType:       "resource_group",
+			metadataKey:      "resource_group",
+			relationshipType: "belongs_to",
+			lookupPrefix:     "name",
+		},
+		// AKS Cluster → Resource Group
+		&metadataLinkRule{
+			sourceType:       "aks_cluster",
+			targetType:       "resource_group",
+			metadataKey:      "resource_group",
+			relationshipType: "belongs_to",
+			lookupPrefix:     "name",
+		},
+	}
+}

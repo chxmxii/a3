@@ -127,7 +127,7 @@ tasks:
           esac
 
   steampipe-plugins:
-    desc: Install the AWS and/or OCI Steampipe plugins (asks for confirmation first)
+    desc: Install the AWS, OCI and/or Azure Steampipe plugins (asks for confirmation first)
     deps: [steampipe-install]
     cmds:
       - cmd: |
@@ -135,7 +135,7 @@ tasks:
             echo "Steampipe is not installed; run 'task steampipe-install' first."
             exit 1
           fi
-          for plugin in aws oci; do
+          for plugin in aws oci azure; do
             if [ -d "$HOME/.steampipe/plugins/hub.steampipe.io/plugins/turbot/$plugin@latest" ]; then
               echo "Steampipe '$plugin' plugin already installed."
               continue

@@ -35,6 +35,10 @@ func BuiltInStandards() []Standard {
 				{ID: "SEC-009", Name: "OCI NSG Open Ingress", Description: "NSGs should not allow unrestricted ingress", Category: CategorySecurity},
 				{ID: "SEC-010", Name: "OCI Volume Encryption", Description: "Block volumes should be encrypted", Category: CategorySecurity},
 				{ID: "SEC-011", Name: "OCI DB Public Access", Description: "Database systems should not be publicly accessible", Category: CategorySecurity},
+				{ID: "SEC-012", Name: "Azure Storage Public Blob", Description: "Storage accounts should not allow public blob access", Category: CategorySecurity},
+				{ID: "SEC-013", Name: "Azure NSG Open Ingress", Description: "Network security groups should not allow unrestricted inbound access", Category: CategorySecurity},
+				{ID: "SEC-014", Name: "Azure Disk Encryption", Description: "Managed disks should use customer-managed encryption keys for sensitive data", Category: CategorySecurity},
+				{ID: "SEC-015", Name: "Azure SQL Public Access", Description: "SQL servers should not be publicly accessible", Category: CategorySecurity},
 			},
 		},
 	}

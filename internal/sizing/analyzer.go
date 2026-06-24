@@ -68,12 +68,16 @@ func (a *Analyzer) analyzeResource(res storage.Resource) *storage.SizingEntry {
 		return a.analyzeEC2(res)
 	case "rds_instance":
 		return a.analyzeRDS(res)
-	case "eks_cluster", "eks_node_group":
+	case "eks_cluster", "eks_node_group", "aks_cluster":
 		return a.analyzeKubernetes(res)
 	case "ebs_volume":
 		return a.analyzeEBS(res)
-	case "s3_bucket", "object_storage":
+	case "s3_bucket", "object_storage", "storage_account":
 		return a.analyzeStorage(res)
+	case "virtual_machine":
+		return a.analyzeAzureVM(res)
+	case "managed_disk":
+		return a.analyzeManagedDisk(res)
 	case "compute_instance":
 		return a.analyzeOCICompute(res)
 	case "oci_database":
@@ -246,6 +250,35 @@ func (a *Analyzer) analyzeLambda(res storage.Resource) *storage.SizingEntry {
 
 	return &storage.SizingEntry{
 		Category:   string(CategoryCompute),
+		ResourceID: res.ResourceID,
+		Data:       data,
+	}
+}
+
+func (a *Analyzer) analyzeAzureVM(res storage.Resource) *storage.SizingEntry {
+	data := map[string]any{
+		"size":  getStr(res.RawMetadata, "size"),
+		"state": getStr(res.RawMetadata, "power_state"),
+	}
+
+	return &storage.SizingEntry{
+		Category:   string(CategoryCompute),
+		ResourceID: res.ResourceID,
+		Data:       data,
+	}
+}
+
+func (a *Analyzer) analyzeManagedDisk(res storage.Resource) *storage.SizingEntry {
+	data := map[string]any{
+		"sku": getStr(res.RawMetadata, "sku_name"),
+	}
+
+	if size, ok := res.RawMetadata["disk_size_gb"].(float64); ok {
+		data["storage_gb"] = size
+	}
+
+	return &storage.SizingEntry{
+		Category:   string(CategoryStorage),
 		ResourceID: res.ResourceID,
 		Data:       data,
 	}

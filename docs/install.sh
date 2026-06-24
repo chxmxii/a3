@@ -86,6 +86,9 @@ if command -v steampipe >/dev/null 2>&1; then
   if confirm "Install the OCI Steampipe plugin?"; then
     steampipe plugin install oci
   fi
+  if confirm "Install the Azure Steampipe plugin?"; then
+    steampipe plugin install azure
+  fi
 fi
 
 echo ""

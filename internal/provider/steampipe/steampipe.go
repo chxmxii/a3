@@ -13,7 +13,7 @@ import (
 type SteampipeProvider struct {
 	pool         *pgxpool.Pool
 	connString   string
-	providerType string // "aws" or "oci"
+	providerType string // "aws", "oci", or "azure"
 }
 
 // NewSteampipeProvider creates a new Steampipe-backed provider.
@@ -70,6 +70,8 @@ func (s *SteampipeProvider) ValidateProfile(ctx context.Context) error {
 		canaryTable = "aws_account"
 	case "oci":
 		canaryTable = "oci_identity_compartment"
+	case "azure":
+		canaryTable = "azure_subscription"
 	default:
 		return fmt.Errorf("unsupported provider type: %s", s.providerType)
 	}

@@ -29,14 +29,14 @@ func runConfigure() error {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Step 1: Provider.
-	fmt.Print("Provider? (aws/oci): ")
+	fmt.Print("Provider? (aws/oci/azure): ")
 	provider, err := readLine(reader)
 	if err != nil {
 		return err
 	}
 	provider = strings.ToLower(provider)
-	if provider != "aws" && provider != "oci" {
-		return fmt.Errorf("unsupported provider: %s (must be aws or oci)", provider)
+	if provider != "aws" && provider != "oci" && provider != "azure" {
+		return fmt.Errorf("unsupported provider: %s (must be aws, oci, or azure)", provider)
 	}
 
 	// Step 2: Profile name.
@@ -52,6 +52,7 @@ func runConfigure() error {
 	// Step 3: Credentials.
 	var awsProfile string
 	var ociProfile string
+	var azureCreds azureCredentials
 	switch provider {
 	case "aws":
 		awsProfile, err = configureAWSCredentials(reader, profileName)
@@ -63,13 +64,19 @@ func runConfigure() error {
 		if err != nil {
 			return err
 		}
+	case "azure":
+		azureCreds, err = configureAzureCredentials(reader)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Step 4: Regions.
 	defaultRegion := "us-east-1"
-	if provider == "oci" {
-		// OCI region identifiers differ from AWS; "*" lets the plugin use every
-		// region subscribed by the tenancy's home region.
+	if provider == "oci" || provider == "azure" {
+		// OCI/Azure region identifiers differ from AWS. For Azure the value is
+		// informational only (the plugin scans the whole subscription); "*" lets
+		// OCI use every region subscribed by the tenancy's home region.
 		defaultRegion = "*"
 	}
 	fmt.Printf("Regions? (comma-separated, * for all, default %s): ", defaultRegion)
@@ -104,10 +111,14 @@ func runConfigure() error {
 		if err := writeSteampipeOCIConfig(profileName, ociProfile, regions); err != nil {
 			return fmt.Errorf("writing Steampipe config: %w", err)
 		}
+	case "azure":
+		if err := writeSteampipeAzureConfig(profileName, azureCreds); err != nil {
+			return fmt.Errorf("writing Steampipe config: %w", err)
+		}
 	}
 
 	// Step 6: Write A3 profile to ~/.a3/config.yaml.
-	if err := writeA3Profile(profileName, provider, awsProfile, ociProfile, regions); err != nil {
+	if err := writeA3Profile(profileName, provider, awsProfile, ociProfile, azureCreds.subscriptionID, regions); err != nil {
 		return fmt.Errorf("writing A3 config: %w", err)
 	}
 
@@ -122,21 +133,27 @@ func runConfigure() error {
 	ensureSteampipeService(reader)
 
 	// Step 8: Summary.
-	spcFile := "aws.spc"
-	connPrefix := "aws"
-	if provider == "oci" {
-		spcFile = "oci.spc"
-		connPrefix = "oci"
+	var spcFile, connPrefix string
+	switch provider {
+	case "oci":
+		spcFile, connPrefix = "oci.spc", "oci"
+	case "azure":
+		spcFile, connPrefix = "azure.spc", "azure"
+	default:
+		spcFile, connPrefix = "aws.spc", "aws"
 	}
 	fmt.Println()
 	fmt.Println("✓ Configuration complete!")
 	fmt.Println()
 	fmt.Printf("  Profile:    %s\n", profileName)
 	fmt.Printf("  Provider:   %s\n", provider)
-	if provider == "aws" {
+	switch provider {
+	case "aws":
 		fmt.Printf("  AWS Profile: %s\n", awsProfile)
-	} else {
+	case "oci":
 		fmt.Printf("  OCI Profile: %s\n", ociProfile)
+	case "azure":
+		fmt.Printf("  Azure Subscription: %s\n", azureCreds.subscriptionID)
 	}
 	fmt.Printf("  Regions:    %s\n", strings.Join(regions, ", "))
 	fmt.Println()
@@ -235,6 +252,67 @@ func configureOCICredentials(reader *bufio.Reader) (string, error) {
 	}
 
 	return ociProfile, nil
+}
+
+// azureCredentials holds the Azure connection details gathered by the wizard.
+// When tenantID/clientID/clientSecret are empty, Steampipe falls back to Azure
+// CLI authentication (az login).
+type azureCredentials struct {
+	subscriptionID string
+	tenantID       string
+	clientID       string
+	clientSecret   string
+}
+
+// configureAzureCredentials prompts for the Azure subscription and auth method.
+func configureAzureCredentials(reader *bufio.Reader) (azureCredentials, error) {
+	var creds azureCredentials
+
+	fmt.Print("Azure subscription ID: ")
+	subID, err := readLine(reader)
+	if err != nil {
+		return creds, err
+	}
+	if subID == "" {
+		return creds, fmt.Errorf("subscription ID cannot be empty")
+	}
+	creds.subscriptionID = subID
+
+	fmt.Print("Auth method? (1=Azure CLI [az login], 2=Service principal): ")
+	method, err := readLine(reader)
+	if err != nil {
+		return creds, err
+	}
+
+	switch method {
+	case "", "1":
+		// Azure CLI auth — nothing else to collect. Warn if az isn't present.
+		if !commandExists("az") {
+			fmt.Println("  ⚠ Azure CLI ('az') not found — install it and run 'az login' before assessing.")
+		}
+		return creds, nil
+
+	case "2":
+		fmt.Print("Tenant ID: ")
+		if creds.tenantID, err = readLine(reader); err != nil {
+			return creds, err
+		}
+		fmt.Print("Client ID: ")
+		if creds.clientID, err = readLine(reader); err != nil {
+			return creds, err
+		}
+		fmt.Print("Client secret: ")
+		if creds.clientSecret, err = readLine(reader); err != nil {
+			return creds, err
+		}
+		if creds.tenantID == "" || creds.clientID == "" || creds.clientSecret == "" {
+			return creds, fmt.Errorf("tenant ID, client ID and client secret are all required for a service principal")
+		}
+		return creds, nil
+
+	default:
+		return creds, fmt.Errorf("invalid auth method: %s (must be 1 or 2)", method)
+	}
 }
 
 // readLine reads a line from the reader and trims whitespace.
@@ -434,6 +512,35 @@ func writeSteampipeOCIConfig(profileName, ociProfile string, regions []string) e
 	return appendSteampipeBlock(spcFile, block)
 }
 
+// writeSteampipeAzureConfig appends a connection block to
+// ~/.steampipe/config/azure.spc. With a service principal the credentials are
+// written into the block; otherwise the plugin uses Azure CLI authentication.
+// The Azure plugin scans the whole subscription, so no region list is written.
+func writeSteampipeAzureConfig(profileName string, creds azureCredentials) error {
+	spcFile, err := steampipeConfigPath("azure.spc")
+	if err != nil {
+		return err
+	}
+
+	var auth string
+	if creds.tenantID != "" {
+		auth = fmt.Sprintf("\n  tenant_id       = %q\n  client_id       = %q\n  client_secret   = %q",
+			creds.tenantID, creds.clientID, creds.clientSecret)
+	}
+
+	block := fmt.Sprintf("\nconnection \"azure_%s\" {\n  plugin          = \"azure\"\n  subscription_id = %q%s\n}\n",
+		profileName, creds.subscriptionID, auth)
+
+	// Service-principal secrets land here, so keep the file owner-only.
+	if err := appendSteampipeBlock(spcFile, block); err != nil {
+		return err
+	}
+	if creds.clientSecret != "" {
+		_ = os.Chmod(spcFile, 0o600)
+	}
+	return nil
+}
+
 // steampipeConfigPath returns the path to a file in ~/.steampipe/config,
 // creating the directory if needed.
 func steampipeConfigPath(name string) (string, error) {
@@ -465,7 +572,7 @@ func appendSteampipeBlock(spcFile, block string) error {
 }
 
 // writeA3Profile writes or updates the A3 profile in ~/.a3/config.yaml.
-func writeA3Profile(profileName, provider, awsProfile, ociProfile string, regions []string) error {
+func writeA3Profile(profileName, provider, awsProfile, ociProfile, azureSubID string, regions []string) error {
 	if _, err := config.EnsureConfigDir(); err != nil {
 		return err
 	}
@@ -492,6 +599,8 @@ func writeA3Profile(profileName, provider, awsProfile, ociProfile string, region
 		profile.AwsProfile = awsProfile
 	case "oci":
 		profile.OciProfile = ociProfile
+	case "azure":
+		profile.AzureSubID = azureSubID
 	}
 
 	// Check if profile already exists and update it, or add new.

@@ -129,3 +129,25 @@ const (
 	ResourceTypeOCILogGroup     ResourceType = "oci_log_group"
 	ResourceTypeOCIAlarm        ResourceType = "oci_alarm"
 )
+
+// Common Azure resource types
+const (
+	ResourceTypeResourceGroup      ResourceType = "resource_group"
+	ResourceTypeVNet               ResourceType = "vnet"
+	ResourceTypeAzureSubnet        ResourceType = "azure_subnet"
+	ResourceTypeAzureNSG           ResourceType = "azure_nsg"
+	ResourceTypeAzureRouteTable    ResourceType = "azure_route_table"
+	ResourceTypeAzureNATGW         ResourceType = "azure_nat_gateway"
+	ResourceTypeVirtualMachine     ResourceType = "virtual_machine"
+	ResourceTypeAKSCluster         ResourceType = "aks_cluster"
+	ResourceTypeManagedDisk        ResourceType = "managed_disk"
+	ResourceTypeStorageAccount     ResourceType = "storage_account"
+	ResourceTypeSQLServer          ResourceType = "sql_server"
+	ResourceTypeSQLDatabase        ResourceType = "sql_database"
+	ResourceTypeAzureLB            ResourceType = "azure_load_balancer"
+	ResourceTypeAppGateway         ResourceType = "application_gateway"
+	ResourceTypePublicIP           ResourceType = "public_ip"
+	ResourceTypeKeyVault           ResourceType = "key_vault"
+	ResourceTypeAppService         ResourceType = "app_service"
+	ResourceTypeCosmosDB           ResourceType = "cosmosdb_account"
+)
