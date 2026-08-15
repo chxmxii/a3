@@ -43,58 +43,27 @@ func (s *Store) InsertRelationship(rel *Relationship) error {
 
 // GetRelationshipsByAssessment returns all relationships for a given assessment.
 func (s *Store) GetRelationshipsByAssessment(assessmentID string) ([]Relationship, error) {
-	rows, err := s.DB.Query(`
+	return queryAll(s.DB, "relationships by assessment", scanRelationship, `
 		SELECT id, assessment_id, source_id, target_id, relationship_type, status, unresolved_reason, target_region, target_account
 		FROM relationships
 		WHERE assessment_id = ?`, assessmentID)
-	if err != nil {
-		return nil, fmt.Errorf("querying relationships by assessment: %w", err)
-	}
-	defer rows.Close()
-
-	return scanRelationships(rows)
 }
 
-// GetRelationshipsBySource returns all relationships for a given source resource within an assessment.
-func (s *Store) GetRelationshipsBySource(assessmentID, sourceID string) ([]Relationship, error) {
-	rows, err := s.DB.Query(`
-		SELECT id, assessment_id, source_id, target_id, relationship_type, status, unresolved_reason, target_region, target_account
-		FROM relationships
-		WHERE assessment_id = ? AND source_id = ?`, assessmentID, sourceID)
-	if err != nil {
-		return nil, fmt.Errorf("querying relationships by source: %w", err)
+// scanRelationship scans the current row into a Relationship struct.
+func scanRelationship(row rowScanner) (Relationship, error) {
+	var r Relationship
+	if err := row.Scan(
+		&r.ID,
+		&r.AssessmentID,
+		&r.SourceID,
+		&r.TargetID,
+		&r.RelationshipType,
+		&r.Status,
+		&r.UnresolvedReason,
+		&r.TargetRegion,
+		&r.TargetAccount,
+	); err != nil {
+		return Relationship{}, err
 	}
-	defer rows.Close()
-
-	return scanRelationships(rows)
-}
-
-// scanRelationships scans rows into a slice of Relationship.
-func scanRelationships(rows interface {
-	Next() bool
-	Scan(dest ...any) error
-	Err() error
-}) ([]Relationship, error) {
-	var rels []Relationship
-	for rows.Next() {
-		var r Relationship
-		if err := rows.Scan(
-			&r.ID,
-			&r.AssessmentID,
-			&r.SourceID,
-			&r.TargetID,
-			&r.RelationshipType,
-			&r.Status,
-			&r.UnresolvedReason,
-			&r.TargetRegion,
-			&r.TargetAccount,
-		); err != nil {
-			return nil, fmt.Errorf("scanning relationship row: %w", err)
-		}
-		rels = append(rels, r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating relationship rows: %w", err)
-	}
-	return rels, nil
+	return r, nil
 }

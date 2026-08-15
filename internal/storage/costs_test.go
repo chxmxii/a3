@@ -132,63 +132,6 @@ func TestGetCostsByAssessmentEmpty(t *testing.T) {
 	}
 }
 
-func TestGetCostsByCategory(t *testing.T) {
-	store := testStore(t)
-
-	monthlyCost := 200.0
-	confidence := "high"
-
-	estimates := []*CostEstimate{
-		{
-			AssessmentID: "test-assessment-1",
-			ResourceID:   "i-cat-1",
-			ResourceType: "ec2_instance",
-			MonthlyCost:  &monthlyCost,
-			Confidence:   &confidence,
-			Category:     "Compute",
-			IdleFlag:     false,
-		},
-		{
-			AssessmentID: "test-assessment-1",
-			ResourceID:   "i-cat-2",
-			ResourceType: "ec2_instance",
-			MonthlyCost:  &monthlyCost,
-			Confidence:   &confidence,
-			Category:     "Compute",
-			IdleFlag:     false,
-		},
-		{
-			AssessmentID: "test-assessment-1",
-			ResourceID:   "vol-cat-1",
-			ResourceType: "ebs_volume",
-			MonthlyCost:  &monthlyCost,
-			Confidence:   &confidence,
-			Category:     "Storage",
-			IdleFlag:     false,
-		},
-	}
-
-	for _, est := range estimates {
-		if err := store.InsertCostEstimate(est); err != nil {
-			t.Fatalf("InsertCostEstimate() error: %v", err)
-		}
-	}
-
-	got, err := store.GetCostsByCategory("test-assessment-1", "Compute")
-	if err != nil {
-		t.Fatalf("GetCostsByCategory() error: %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 Compute cost estimates, got %d", len(got))
-	}
-
-	for _, est := range got {
-		if est.Category != "Compute" {
-			t.Errorf("expected Category=Compute, got %q", est.Category)
-		}
-	}
-}
-
 func TestCostEstimateRoundTrip(t *testing.T) {
 	store := testStore(t)
 

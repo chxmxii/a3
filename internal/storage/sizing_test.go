@@ -111,51 +111,6 @@ func TestGetSizingByAssessmentEmpty(t *testing.T) {
 	}
 }
 
-func TestGetSizingByCategory(t *testing.T) {
-	store := testStore(t)
-
-	entries := []*SizingEntry{
-		{
-			AssessmentID: "test-assessment-1",
-			Category:     "compute",
-			ResourceID:   "i-cat-1",
-			Data:         map[string]any{"instance_type": "m5.large"},
-		},
-		{
-			AssessmentID: "test-assessment-1",
-			Category:     "compute",
-			ResourceID:   "i-cat-2",
-			Data:         map[string]any{"instance_type": "c5.xlarge"},
-		},
-		{
-			AssessmentID: "test-assessment-1",
-			Category:     "database",
-			ResourceID:   "db-cat-1",
-			Data:         map[string]any{"engine": "postgres"},
-		},
-	}
-
-	for _, e := range entries {
-		if err := store.InsertSizing(e); err != nil {
-			t.Fatalf("InsertSizing() error: %v", err)
-		}
-	}
-
-	got, err := store.GetSizingByCategory("test-assessment-1", "compute")
-	if err != nil {
-		t.Fatalf("GetSizingByCategory() error: %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 compute sizing entries, got %d", len(got))
-	}
-
-	for _, e := range got {
-		if e.Category != "compute" {
-			t.Errorf("expected Category=compute, got %q", e.Category)
-		}
-	}
-}
-
 func TestSizingRoundTripWithComplexData(t *testing.T) {
 	store := testStore(t)
 
@@ -179,9 +134,9 @@ func TestSizingRoundTripWithComplexData(t *testing.T) {
 		t.Fatalf("InsertSizing() error: %v", err)
 	}
 
-	got, err := store.GetSizingByCategory("test-assessment-1", "kubernetes")
+	got, err := store.GetSizingByAssessment("test-assessment-1")
 	if err != nil {
-		t.Fatalf("GetSizingByCategory() error: %v", err)
+		t.Fatalf("GetSizingByAssessment() error: %v", err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("expected 1 sizing entry, got %d", len(got))

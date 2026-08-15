@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -84,57 +83,33 @@ func (s *Store) UpdateAssessmentStatus(id, status string, completedAt *time.Time
 
 // GetAssessment retrieves a single assessment by ID. Returns nil if not found.
 func (s *Store) GetAssessment(id string) (*Assessment, error) {
-	row := s.DB.QueryRow(`
+	return queryOne(s.DB, "assessment by id", scanAssessment, `
 		SELECT id, profile, provider, status, started_at, completed_at, regions
 		FROM assessments
 		WHERE id = ?`, id)
-
-	a, err := scanAssessment(row)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("querying assessment by id: %w", err)
-	}
-	return a, nil
 }
 
 // GetLatestAssessment returns the most recent assessment for a given profile.
 // Returns nil if no assessments exist for the profile.
 func (s *Store) GetLatestAssessment(profile string) (*Assessment, error) {
-	row := s.DB.QueryRow(`
+	return queryOne(s.DB, "latest assessment", scanAssessment, `
 		SELECT id, profile, provider, status, started_at, completed_at, regions
 		FROM assessments
 		WHERE profile = ?
 		ORDER BY started_at DESC
 		LIMIT 1`, profile)
-
-	a, err := scanAssessment(row)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("querying latest assessment: %w", err)
-	}
-	return a, nil
 }
 
 // ListAssessments returns all assessments ordered by started_at descending.
 func (s *Store) ListAssessments() ([]Assessment, error) {
-	rows, err := s.DB.Query(`
+	return queryAll(s.DB, "assessments", scanAssessment, `
 		SELECT id, profile, provider, status, started_at, completed_at, regions
 		FROM assessments
 		ORDER BY started_at DESC`)
-	if err != nil {
-		return nil, fmt.Errorf("querying assessments: %w", err)
-	}
-	defer rows.Close()
-
-	return scanAssessments(rows)
 }
 
-// scanAssessment scans a single row into an Assessment struct.
-func scanAssessment(row *sql.Row) (*Assessment, error) {
+// scanAssessment scans the current row into an Assessment struct.
+func scanAssessment(row rowScanner) (Assessment, error) {
 	var a Assessment
 	var startedAtStr string
 	var completedAtStr *string
@@ -150,77 +125,26 @@ func scanAssessment(row *sql.Row) (*Assessment, error) {
 		&regionsJSON,
 	)
 	if err != nil {
-		return nil, err
+		return Assessment{}, err
 	}
 
 	startedAt, err := time.Parse(time.RFC3339, startedAtStr)
 	if err != nil {
-		return nil, fmt.Errorf("parsing started_at: %w", err)
+		return Assessment{}, fmt.Errorf("parsing started_at: %w", err)
 	}
 	a.StartedAt = startedAt
 
 	if completedAtStr != nil {
 		t, err := time.Parse(time.RFC3339, *completedAtStr)
 		if err != nil {
-			return nil, fmt.Errorf("parsing completed_at: %w", err)
+			return Assessment{}, fmt.Errorf("parsing completed_at: %w", err)
 		}
 		a.CompletedAt = &t
 	}
 
 	if err := json.Unmarshal([]byte(regionsJSON), &a.Regions); err != nil {
-		return nil, fmt.Errorf("unmarshaling regions: %w", err)
+		return Assessment{}, fmt.Errorf("unmarshaling regions: %w", err)
 	}
 
-	return &a, nil
-}
-
-// scanAssessments scans multiple rows into a slice of Assessment structs.
-func scanAssessments(rows *sql.Rows) ([]Assessment, error) {
-	var assessments []Assessment
-
-	for rows.Next() {
-		var a Assessment
-		var startedAtStr string
-		var completedAtStr *string
-		var regionsJSON string
-
-		err := rows.Scan(
-			&a.ID,
-			&a.Profile,
-			&a.Provider,
-			&a.Status,
-			&startedAtStr,
-			&completedAtStr,
-			&regionsJSON,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("scanning assessment row: %w", err)
-		}
-
-		startedAt, err := time.Parse(time.RFC3339, startedAtStr)
-		if err != nil {
-			return nil, fmt.Errorf("parsing started_at: %w", err)
-		}
-		a.StartedAt = startedAt
-
-		if completedAtStr != nil {
-			t, err := time.Parse(time.RFC3339, *completedAtStr)
-			if err != nil {
-				return nil, fmt.Errorf("parsing completed_at: %w", err)
-			}
-			a.CompletedAt = &t
-		}
-
-		if err := json.Unmarshal([]byte(regionsJSON), &a.Regions); err != nil {
-			return nil, fmt.Errorf("unmarshaling regions: %w", err)
-		}
-
-		assessments = append(assessments, a)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating assessment rows: %w", err)
-	}
-
-	return assessments, nil
+	return a, nil
 }
