@@ -1,6 +1,7 @@
 package architecture
 
 import (
+	"github.com/chxmxii/a3/internal/metautil"
 	"github.com/chxmxii/a3/internal/storage"
 )
 
@@ -12,7 +13,6 @@ type RelationshipRule interface {
 // metadataLinkRule links a source resource to a target based on a metadata field.
 type metadataLinkRule struct {
 	sourceType       string
-	targetType       string
 	metadataKey      string
 	relationshipType string
 	lookupPrefix     string // prefix for byInternalID lookup
@@ -24,7 +24,7 @@ func (r *metadataLinkRule) Apply(resources []storage.Resource, byID map[string]*
 		if res.ResourceType != r.sourceType {
 			continue
 		}
-		targetRef := getStr(res.RawMetadata, r.metadataKey)
+		targetRef := metautil.GetString(res.RawMetadata, r.metadataKey)
 		if targetRef == "" {
 			continue
 		}
@@ -67,7 +67,6 @@ func awsRelationshipRules() []RelationshipRule {
 		// Subnet → VPC
 		&metadataLinkRule{
 			sourceType:       "subnet",
-			targetType:       "vpc",
 			metadataKey:      "vpc_id",
 			relationshipType: "belongs_to",
 			lookupPrefix:     "vpc_id",
@@ -75,7 +74,6 @@ func awsRelationshipRules() []RelationshipRule {
 		// Route Table → VPC
 		&metadataLinkRule{
 			sourceType:       "route_table",
-			targetType:       "vpc",
 			metadataKey:      "vpc_id",
 			relationshipType: "belongs_to",
 			lookupPrefix:     "vpc_id",
@@ -83,7 +81,6 @@ func awsRelationshipRules() []RelationshipRule {
 		// Security Group → VPC
 		&metadataLinkRule{
 			sourceType:       "security_group",
-			targetType:       "vpc",
 			metadataKey:      "vpc_id",
 			relationshipType: "belongs_to",
 			lookupPrefix:     "vpc_id",
@@ -91,7 +88,6 @@ func awsRelationshipRules() []RelationshipRule {
 		// EC2 → Subnet
 		&metadataLinkRule{
 			sourceType:       "ec2_instance",
-			targetType:       "subnet",
 			metadataKey:      "subnet_id",
 			relationshipType: "deployed_in",
 			lookupPrefix:     "subnet_id",
@@ -99,7 +95,6 @@ func awsRelationshipRules() []RelationshipRule {
 		// EC2 → VPC
 		&metadataLinkRule{
 			sourceType:       "ec2_instance",
-			targetType:       "vpc",
 			metadataKey:      "vpc_id",
 			relationshipType: "belongs_to",
 			lookupPrefix:     "vpc_id",
@@ -107,7 +102,6 @@ func awsRelationshipRules() []RelationshipRule {
 		// NAT Gateway → VPC
 		&metadataLinkRule{
 			sourceType:       "nat_gateway",
-			targetType:       "vpc",
 			metadataKey:      "vpc_id",
 			relationshipType: "belongs_to",
 			lookupPrefix:     "vpc_id",
@@ -115,7 +109,6 @@ func awsRelationshipRules() []RelationshipRule {
 		// NAT Gateway → Subnet
 		&metadataLinkRule{
 			sourceType:       "nat_gateway",
-			targetType:       "subnet",
 			metadataKey:      "subnet_id",
 			relationshipType: "deployed_in",
 			lookupPrefix:     "subnet_id",
@@ -123,7 +116,6 @@ func awsRelationshipRules() []RelationshipRule {
 		// Internet Gateway → VPC
 		&metadataLinkRule{
 			sourceType:       "internet_gateway",
-			targetType:       "vpc",
 			metadataKey:      "vpc_id",
 			relationshipType: "attached_to",
 			lookupPrefix:     "vpc_id",
@@ -131,7 +123,6 @@ func awsRelationshipRules() []RelationshipRule {
 		// ALB → VPC
 		&metadataLinkRule{
 			sourceType:       "alb",
-			targetType:       "vpc",
 			metadataKey:      "vpc_id",
 			relationshipType: "belongs_to",
 			lookupPrefix:     "vpc_id",
@@ -139,7 +130,6 @@ func awsRelationshipRules() []RelationshipRule {
 		// NLB → VPC
 		&metadataLinkRule{
 			sourceType:       "nlb",
-			targetType:       "vpc",
 			metadataKey:      "vpc_id",
 			relationshipType: "belongs_to",
 			lookupPrefix:     "vpc_id",
@@ -147,7 +137,6 @@ func awsRelationshipRules() []RelationshipRule {
 		// EKS Node Group → Cluster (by cluster_name)
 		&metadataLinkRule{
 			sourceType:       "eks_node_group",
-			targetType:       "eks_cluster",
 			metadataKey:      "cluster_name",
 			relationshipType: "belongs_to",
 			lookupPrefix:     "cluster_name",
@@ -155,7 +144,6 @@ func awsRelationshipRules() []RelationshipRule {
 		// Lambda → VPC (via vpc_id in vpc_config)
 		&metadataLinkRule{
 			sourceType:       "lambda_function",
-			targetType:       "vpc",
 			metadataKey:      "vpc_id",
 			relationshipType: "deployed_in",
 			lookupPrefix:     "vpc_id",
@@ -163,7 +151,6 @@ func awsRelationshipRules() []RelationshipRule {
 		// RDS → VPC
 		&metadataLinkRule{
 			sourceType:       "rds_instance",
-			targetType:       "vpc",
 			metadataKey:      "vpc_id",
 			relationshipType: "deployed_in",
 			lookupPrefix:     "vpc_id",
@@ -176,7 +163,6 @@ func ociRelationshipRules() []RelationshipRule {
 		// Subnet → VCN
 		&metadataLinkRule{
 			sourceType:       "oci_subnet",
-			targetType:       "vcn",
 			metadataKey:      "vcn_id",
 			relationshipType: "belongs_to",
 			lookupPrefix:     "vcn_id",
@@ -184,7 +170,6 @@ func ociRelationshipRules() []RelationshipRule {
 		// Route Table → VCN
 		&metadataLinkRule{
 			sourceType:       "oci_route_table",
-			targetType:       "vcn",
 			metadataKey:      "vcn_id",
 			relationshipType: "belongs_to",
 			lookupPrefix:     "vcn_id",
@@ -192,7 +177,6 @@ func ociRelationshipRules() []RelationshipRule {
 		// Security List → VCN
 		&metadataLinkRule{
 			sourceType:       "security_list",
-			targetType:       "vcn",
 			metadataKey:      "vcn_id",
 			relationshipType: "belongs_to",
 			lookupPrefix:     "vcn_id",
@@ -200,7 +184,6 @@ func ociRelationshipRules() []RelationshipRule {
 		// NSG → VCN
 		&metadataLinkRule{
 			sourceType:       "nsg",
-			targetType:       "vcn",
 			metadataKey:      "vcn_id",
 			relationshipType: "belongs_to",
 			lookupPrefix:     "vcn_id",
@@ -208,7 +191,6 @@ func ociRelationshipRules() []RelationshipRule {
 		// Internet Gateway → VCN
 		&metadataLinkRule{
 			sourceType:       "oci_internet_gateway",
-			targetType:       "vcn",
 			metadataKey:      "vcn_id",
 			relationshipType: "attached_to",
 			lookupPrefix:     "vcn_id",
@@ -216,7 +198,6 @@ func ociRelationshipRules() []RelationshipRule {
 		// NAT Gateway → VCN
 		&metadataLinkRule{
 			sourceType:       "oci_nat_gateway",
-			targetType:       "vcn",
 			metadataKey:      "vcn_id",
 			relationshipType: "attached_to",
 			lookupPrefix:     "vcn_id",
@@ -224,7 +205,6 @@ func ociRelationshipRules() []RelationshipRule {
 		// Service Gateway → VCN
 		&metadataLinkRule{
 			sourceType:       "service_gateway",
-			targetType:       "vcn",
 			metadataKey:      "vcn_id",
 			relationshipType: "attached_to",
 			lookupPrefix:     "vcn_id",
@@ -232,7 +212,6 @@ func ociRelationshipRules() []RelationshipRule {
 		// OKE Cluster → VCN
 		&metadataLinkRule{
 			sourceType:       "oke_cluster",
-			targetType:       "vcn",
 			metadataKey:      "vcn_id",
 			relationshipType: "deployed_in",
 			lookupPrefix:     "vcn_id",
@@ -240,7 +219,6 @@ func ociRelationshipRules() []RelationshipRule {
 		// Subnet → Route Table
 		&metadataLinkRule{
 			sourceType:       "oci_subnet",
-			targetType:       "oci_route_table",
 			metadataKey:      "route_table_id",
 			relationshipType: "uses",
 			lookupPrefix:     "route_table_id",
