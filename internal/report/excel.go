@@ -16,8 +16,10 @@ func RenderExcel(data *ReportData, outputPath string) error {
 	// Remove default "Sheet1".
 	f.DeleteSheet("Sheet1")
 
+	tech := BuildTechnicalReport(data)
+
 	// Sheet 1: Summary.
-	writeSummarySheet(f, data)
+	writeSummarySheet(f, data, tech)
 
 	// Sheet 2: Inventory.
 	writeInventorySheet(f, data)
@@ -39,17 +41,10 @@ func RenderExcel(data *ReportData, outputPath string) error {
 	return nil
 }
 
-func writeSummarySheet(f *excelize.File, data *ReportData) {
+func writeSummarySheet(f *excelize.File, data *ReportData, tech TechnicalReport) {
 	sheet := "Summary"
 	f.NewSheet(sheet)
-
-	// Header styles.
-	headerStyle, _ := f.NewStyle(&excelize.Style{
-		Font:      &excelize.Font{Bold: true, Size: 11},
-		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#4F46E5"}},
-		Alignment: &excelize.Alignment{Horizontal: "left"},
-	})
-	_ = headerStyle
+	exec := tech.Executive
 
 	row := 1
 	f.SetCellValue(sheet, cell("A", row), "3A Assessment Report")
@@ -81,30 +76,32 @@ func writeSummarySheet(f *excelize.File, data *ReportData) {
 
 	row++
 	f.SetCellValue(sheet, cell("A", row), "Total Resources")
-	f.SetCellValue(sheet, cell("B", row), len(data.Resources))
+	f.SetCellValue(sheet, cell("B", row), exec.TotalResources)
 	row++
 	f.SetCellValue(sheet, cell("A", row), "Total Findings")
-	f.SetCellValue(sheet, cell("B", row), len(data.Findings))
+	f.SetCellValue(sheet, cell("B", row), exec.TotalFindings)
 	row++
 
 	// Cost total.
-	totalCost := 0.0
-	for _, c := range data.Costs {
-		if c.MonthlyCost != nil {
-			totalCost += *c.MonthlyCost
-		}
-	}
 	f.SetCellValue(sheet, cell("A", row), "Est. Monthly Cost")
-	f.SetCellValue(sheet, cell("B", row), fmt.Sprintf("$%.2f", totalCost))
+	f.SetCellValue(sheet, cell("B", row), fmt.Sprintf("$%.2f", exec.MonthlyCost))
 	row++
 	row++
 
 	// Findings by severity.
 	f.SetCellValue(sheet, cell("A", row), "Findings by Severity")
 	row++
-	sevCounts := map[string]int{}
+	sevCounts := map[string]int{
+		"critical": exec.CriticalCount,
+		"high":     exec.HighCount,
+		"medium":   exec.MediumCount,
+		"low":      exec.LowCount,
+	}
+	// BuildExecutiveSummary does not count informational findings; derive that one here.
 	for _, finding := range data.Findings {
-		sevCounts[finding.Severity]++
+		if finding.Severity == "informational" {
+			sevCounts["informational"]++
+		}
 	}
 	for _, sev := range []string{"critical", "high", "medium", "low", "informational"} {
 		if c := sevCounts[sev]; c > 0 {
@@ -118,16 +115,12 @@ func writeSummarySheet(f *excelize.File, data *ReportData) {
 	// Resources by type.
 	f.SetCellValue(sheet, cell("A", row), "Resources by Type")
 	row++
-	typeCounts := map[string]int{}
-	for _, r := range data.Resources {
-		typeCounts[r.ResourceType]++
-	}
 	type kv struct {
 		k string
 		v int
 	}
 	var sorted []kv
-	for k, v := range typeCounts {
+	for k, v := range tech.ResourcesByType {
 		sorted = append(sorted, kv{k, v})
 	}
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].v > sorted[j].v })
@@ -144,150 +137,128 @@ func writeSummarySheet(f *excelize.File, data *ReportData) {
 
 func writeInventorySheet(f *excelize.File, data *ReportData) {
 	sheet := "Inventory"
-	f.NewSheet(sheet)
 
-	// Headers.
-	headers := []string{"Type", "Name", "Region", "Resource ID", "Tags"}
-	for i, h := range headers {
-		f.SetCellValue(sheet, cell(colLetter(i), 1), h)
-	}
-
-	// Data rows.
-	for i, r := range data.Resources {
-		row := i + 2
-		f.SetCellValue(sheet, cell("A", row), r.ResourceType)
-		f.SetCellValue(sheet, cell("B", row), r.Name)
-		f.SetCellValue(sheet, cell("C", row), r.Region)
-		f.SetCellValue(sheet, cell("D", row), r.ResourceID)
-
+	rows := make([][]any, 0, len(data.Resources))
+	for _, r := range data.Resources {
 		// Tags as key=value pairs.
 		var tagParts []string
 		for k, v := range r.Tags {
 			tagParts = append(tagParts, k+"="+v)
 		}
 		sort.Strings(tagParts)
-		f.SetCellValue(sheet, cell("E", row), strings.Join(tagParts, "; "))
+		rows = append(rows, []any{r.ResourceType, r.Name, r.Region, r.ResourceID, strings.Join(tagParts, "; ")})
 	}
 
-	f.SetColWidth(sheet, "A", "A", 20)
-	f.SetColWidth(sheet, "B", "B", 35)
-	f.SetColWidth(sheet, "C", "C", 18)
-	f.SetColWidth(sheet, "D", "D", 50)
-	f.SetColWidth(sheet, "E", "E", 40)
+	writeTable(f, sheet,
+		[]string{"Type", "Name", "Region", "Resource ID", "Tags"},
+		[]float64{20, 35, 18, 50, 40},
+		rows)
 
 	// Auto-filter.
-	if len(data.Resources) > 0 {
-		f.AutoFilter(sheet, fmt.Sprintf("A1:E%d", len(data.Resources)+1), nil)
+	if len(rows) > 0 {
+		f.AutoFilter(sheet, fmt.Sprintf("A1:E%d", len(rows)+1), nil)
 	}
 }
 
 func writeFindingsSheet(f *excelize.File, data *ReportData) {
 	sheet := "Findings"
-	f.NewSheet(sheet)
 
-	headers := []string{"Severity", "Category", "Resource ID", "Description", "Recommendation", "Standard", "Control"}
-	for i, h := range headers {
-		f.SetCellValue(sheet, cell(colLetter(i), 1), h)
+	rows := make([][]any, 0, len(data.Findings))
+	for _, finding := range data.Findings {
+		rows = append(rows, []any{
+			strings.ToUpper(finding.Severity),
+			finding.Category,
+			finding.ResourceID,
+			finding.Description,
+			finding.Recommendation,
+			finding.StandardName,
+			finding.ControlID,
+		})
 	}
 
-	for i, finding := range data.Findings {
-		row := i + 2
-		f.SetCellValue(sheet, cell("A", row), strings.ToUpper(finding.Severity))
-		f.SetCellValue(sheet, cell("B", row), finding.Category)
-		f.SetCellValue(sheet, cell("C", row), finding.ResourceID)
-		f.SetCellValue(sheet, cell("D", row), finding.Description)
-		f.SetCellValue(sheet, cell("E", row), finding.Recommendation)
-		f.SetCellValue(sheet, cell("F", row), finding.StandardName)
-		f.SetCellValue(sheet, cell("G", row), finding.ControlID)
-	}
+	writeTable(f, sheet,
+		[]string{"Severity", "Category", "Resource ID", "Description", "Recommendation", "Standard", "Control"},
+		[]float64{12, 20, 50, 60, 60, 25, 15},
+		rows)
 
-	f.SetColWidth(sheet, "A", "A", 12)
-	f.SetColWidth(sheet, "B", "B", 20)
-	f.SetColWidth(sheet, "C", "C", 50)
-	f.SetColWidth(sheet, "D", "D", 60)
-	f.SetColWidth(sheet, "E", "E", 60)
-	f.SetColWidth(sheet, "F", "F", 25)
-	f.SetColWidth(sheet, "G", "G", 15)
-
-	if len(data.Findings) > 0 {
-		f.AutoFilter(sheet, fmt.Sprintf("A1:G%d", len(data.Findings)+1), nil)
+	if len(rows) > 0 {
+		f.AutoFilter(sheet, fmt.Sprintf("A1:G%d", len(rows)+1), nil)
 	}
 }
 
 func writeCostSheet(f *excelize.File, data *ReportData) {
 	sheet := "Cost"
-	f.NewSheet(sheet)
 
-	headers := []string{"Resource ID", "Resource Type", "Category", "Monthly Cost ($)", "Confidence", "Idle", "Oversized"}
-	for i, h := range headers {
-		f.SetCellValue(sheet, cell(colLetter(i), 1), h)
-	}
-
-	for i, c := range data.Costs {
-		row := i + 2
-		f.SetCellValue(sheet, cell("A", row), c.ResourceID)
-		f.SetCellValue(sheet, cell("B", row), c.ResourceType)
-		f.SetCellValue(sheet, cell("C", row), c.Category)
+	rows := make([][]any, 0, len(data.Costs))
+	for _, c := range data.Costs {
+		var monthly any = "N/A"
 		if c.MonthlyCost != nil {
-			f.SetCellValue(sheet, cell("D", row), *c.MonthlyCost)
-		} else {
-			f.SetCellValue(sheet, cell("D", row), "N/A")
+			monthly = *c.MonthlyCost
 		}
 		conf := ""
 		if c.Confidence != nil {
 			conf = *c.Confidence
 		}
-		f.SetCellValue(sheet, cell("E", row), conf)
-		f.SetCellValue(sheet, cell("F", row), boolToYesNo(c.IdleFlag))
-		f.SetCellValue(sheet, cell("G", row), boolToYesNo(c.OversizedFlag))
+		rows = append(rows, []any{
+			c.ResourceID,
+			c.ResourceType,
+			c.Category,
+			monthly,
+			conf,
+			boolToYesNo(c.IdleFlag),
+			boolToYesNo(c.OversizedFlag),
+		})
 	}
 
-	f.SetColWidth(sheet, "A", "A", 50)
-	f.SetColWidth(sheet, "B", "B", 20)
-	f.SetColWidth(sheet, "C", "C", 15)
-	f.SetColWidth(sheet, "D", "D", 15)
-	f.SetColWidth(sheet, "E", "E", 12)
-	f.SetColWidth(sheet, "F", "F", 8)
-	f.SetColWidth(sheet, "G", "G", 10)
+	writeTable(f, sheet,
+		[]string{"Resource ID", "Resource Type", "Category", "Monthly Cost ($)", "Confidence", "Idle", "Oversized"},
+		[]float64{50, 20, 15, 15, 12, 8, 10},
+		rows)
 
-	if len(data.Costs) > 0 {
-		f.AutoFilter(sheet, fmt.Sprintf("A1:G%d", len(data.Costs)+1), nil)
+	if len(rows) > 0 {
+		f.AutoFilter(sheet, fmt.Sprintf("A1:G%d", len(rows)+1), nil)
 	}
 }
 
 func writeRelationshipsSheet(f *excelize.File, data *ReportData) {
-	sheet := "Architecture"
-	f.NewSheet(sheet)
-
-	headers := []string{"Source ID", "Target ID", "Relationship Type", "Status", "Reason"}
-	for i, h := range headers {
-		f.SetCellValue(sheet, cell(colLetter(i), 1), h)
+	rows := make([][]any, 0, len(data.Relationships))
+	for _, rel := range data.Relationships {
+		rows = append(rows, []any{rel.SourceID, rel.TargetID, rel.RelationshipType, rel.Status, rel.UnresolvedReason})
 	}
 
-	for i, rel := range data.Relationships {
-		row := i + 2
-		f.SetCellValue(sheet, cell("A", row), rel.SourceID)
-		f.SetCellValue(sheet, cell("B", row), rel.TargetID)
-		f.SetCellValue(sheet, cell("C", row), rel.RelationshipType)
-		f.SetCellValue(sheet, cell("D", row), rel.Status)
-		f.SetCellValue(sheet, cell("E", row), rel.UnresolvedReason)
-	}
-
-	f.SetColWidth(sheet, "A", "A", 50)
-	f.SetColWidth(sheet, "B", "B", 50)
-	f.SetColWidth(sheet, "C", "C", 25)
-	f.SetColWidth(sheet, "D", "D", 12)
-	f.SetColWidth(sheet, "E", "E", 30)
+	writeTable(f, "Architecture",
+		[]string{"Source ID", "Target ID", "Relationship Type", "Status", "Reason"},
+		[]float64{50, 50, 25, 12, 30},
+		rows)
 }
 
 // Helpers.
 
-func cell(col string, row int) string {
-	return fmt.Sprintf("%s%d", col, row)
+// writeTable creates a sheet and writes a header row, data rows, and column widths.
+func writeTable(f *excelize.File, sheet string, headers []string, widths []float64, rows [][]any) {
+	f.NewSheet(sheet)
+
+	for i, h := range headers {
+		col, _ := excelize.ColumnNumberToName(i + 1)
+		f.SetCellValue(sheet, cell(col, 1), h)
+	}
+
+	for i, vals := range rows {
+		row := i + 2
+		for j, v := range vals {
+			col, _ := excelize.ColumnNumberToName(j + 1)
+			f.SetCellValue(sheet, cell(col, row), v)
+		}
+	}
+
+	for i, w := range widths {
+		col, _ := excelize.ColumnNumberToName(i + 1)
+		f.SetColWidth(sheet, col, col, w)
+	}
 }
 
-func colLetter(idx int) string {
-	return string(rune('A' + idx))
+func cell(col string, row int) string {
+	return fmt.Sprintf("%s%d", col, row)
 }
 
 func boolToYesNo(b bool) string {
