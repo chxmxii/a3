@@ -1,3 +1,29 @@
+# v0.2.0 — TUI Improvements & Codebase Overhaul
+
+## New Features
+
+### TUI
+- **Inventory search**: press `/` to live-filter resources by name, ID, type, or region (case-insensitive, composes with region/type filters)
+- **Help overlay**: press `?` for a full keybinding reference per view
+- Animated loading spinner while assessment data loads
+
+### Security
+- **Open egress rules are now highlighted**: security group rules allowing all outbound traffic (0.0.0.0/0, ::/0) are flagged in the SG detail panel, matching the existing inbound highlight
+- **Checklist expanded from 11 to 28 controls**: CIS AWS Foundations, AWS Well-Architected, cost, reliability, and operations controls now appear in checklist output (previously only the 3A Security Baseline controls were tracked, silently dropping findings from the other standards)
+
+### Configuration
+- `steampipe.connection_string` in `~/.a3/config.yaml` is now honored (precedence: `--steampipe-conn` flag > config > default) — previously written by `a3 configure` but never read
+
+## Internal
+
+- Codebase reduced ~17% (12.2k → 10.1k lines of Go) with no behavior regressions
+- All AWS pricing/instance data moved to one embedded JSON catalog (`internal/cost/data/aws_pricing.json`) — prices can be updated without code changes
+- 23 of 28 security rules converted to a data-driven table; adding a simple rule is now a ~10-line entry
+- Unified storage scan layer, Steampipe query cascade, TUI scroll/key handling, and metadata accessors
+- First unit tests for TUI logic (SG rule parsing, search, scroll clamping)
+
+---
+
 # v0.1.0 — Initial Release
 
 First public release of 3A (Agnostic Account Assessment).

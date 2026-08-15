@@ -81,12 +81,14 @@ a3 profiles add production --provider aws --regions us-east-1,eu-west-1 --aws-pr
 | 1-5 | Switch views (Overview, Inventory, Architecture, Findings, Cost) |
 | j/k | Scroll up/down |
 | Enter | View resource details (type-aware for SGs, Route Tables, IAM Policies) |
-| Esc/x | Close detail panel / clear filters |
+| / | Search inventory (type to filter live, Enter to apply, Esc to cancel) |
+| Esc/x | Close detail panel / clear filters and search |
 | r/R | Cycle regions (Inventory) |
 | t/T | Cycle resource types (Inventory) |
 | n/v | Switch Network/Resource architecture view |
 | c/h/m/l | Filter by severity (Findings) |
-| q | Quit |
+| ? | Toggle help overlay |
+| q | Quit (Ctrl+C also works during search) |
 
 ## Configuration
 
