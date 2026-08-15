@@ -3,27 +3,10 @@ package discovery
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/chxmxii/a3/internal/provider"
 	"github.com/chxmxii/a3/internal/storage"
 )
-
-// RetryConfig defines retry behavior for failed API calls.
-type RetryConfig struct {
-	MaxRetries     int           // default 3
-	InitialBackoff time.Duration // default 1s
-	BackoffFactor  float64       // default 2.0
-}
-
-// DefaultRetryConfig returns the default retry configuration.
-func DefaultRetryConfig() RetryConfig {
-	return RetryConfig{
-		MaxRetries:     3,
-		InitialBackoff: 1 * time.Second,
-		BackoffFactor:  2.0,
-	}
-}
 
 // DiscoverySummary reports what was found during discovery.
 type DiscoverySummary struct {
@@ -38,48 +21,24 @@ type DiscoveryError struct {
 	Service string
 	Region  string
 	Err     error
-	Retries int
 }
 
-// Option is a functional option for configuring the Engine.
-type Option func(*Engine)
-
-// WithMaxParallel sets the maximum number of concurrent goroutines for discovery.
-func WithMaxParallel(n int) Option {
-	return func(e *Engine) {
-		if n > 0 {
-			e.maxParallel = n
-		}
-	}
-}
-
-// WithRetryConfig sets the retry configuration for discovery.
-func WithRetryConfig(cfg RetryConfig) Option {
-	return func(e *Engine) {
-		e.retryConfig = cfg
-	}
-}
+// resultsBuffer sizes the channel between the discoverer goroutine and the
+// persisting loop.
+const resultsBuffer = 100
 
 // Engine orchestrates resource discovery across regions.
 type Engine struct {
-	provider    provider.Provider
-	store       *storage.Store
-	maxParallel int
-	retryConfig RetryConfig
+	provider provider.Provider
+	store    *storage.Store
 }
 
-// NewEngine creates a new discovery Engine with the given provider, store, and options.
-func NewEngine(p provider.Provider, store *storage.Store, opts ...Option) *Engine {
-	e := &Engine{
-		provider:    p,
-		store:       store,
-		maxParallel: 10,
-		retryConfig: DefaultRetryConfig(),
+// NewEngine creates a new discovery Engine with the given provider and store.
+func NewEngine(p provider.Provider, store *storage.Store) *Engine {
+	return &Engine{
+		provider: p,
+		store:    store,
 	}
-	for _, opt := range opts {
-		opt(e)
-	}
-	return e
 }
 
 // Run executes discovery for the given assessment and regions, returning a summary.
@@ -90,7 +49,7 @@ func (e *Engine) Run(ctx context.Context, assessmentID string, regions []string)
 	}
 
 	// Create a buffered results channel.
-	results := make(chan provider.DiscoveredResource, e.maxParallel*10)
+	results := make(chan provider.DiscoveredResource, resultsBuffer)
 
 	// Launch discovery in a separate goroutine so we can read results concurrently.
 	var discoverErr error

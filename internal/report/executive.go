@@ -1,6 +1,5 @@
 package report
 
-import "strings"
 
 // ExecutiveSummary generates a high-level summary suitable for leadership.
 type ExecutiveSummary struct {
@@ -75,19 +74,4 @@ func (s ExecutiveSummary) RiskLevel() string {
 		return "MEDIUM"
 	}
 	return "LOW"
-}
-
-// RiskSummary returns a one-line summary.
-func (s ExecutiveSummary) RiskSummary() string {
-	parts := []string{}
-	if s.CriticalCount > 0 {
-		parts = append(parts, "critical security issues found")
-	}
-	if s.HighCount > 0 {
-		parts = append(parts, "high-severity findings requiring attention")
-	}
-	if len(parts) == 0 {
-		return "No critical or high-severity issues found"
-	}
-	return strings.Join(parts, "; ")
 }
