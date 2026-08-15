@@ -44,9 +44,9 @@ func (d *SteampipeDiscoverer) DiscoverResources(ctx context.Context, regions []s
 			// Classify the error for cleaner output.
 			errStr := err.Error()
 			switch {
-			case contains(errStr, "does not exist"):
+			case strings.Contains(errStr, "does not exist"):
 				log.Printf("[steampipe] ⚠ table %s not available (skipped)", mapping.Table)
-			case contains(errStr, "AccessDenied") || contains(errStr, "UnauthorizedOperation") || contains(errStr, "AccessDeniedException"):
+			case strings.Contains(errStr, "AccessDenied") || strings.Contains(errStr, "UnauthorizedOperation") || strings.Contains(errStr, "AccessDeniedException"):
 				log.Printf("[steampipe] 🔒 %s: insufficient permissions (skipped)", mapping.Table)
 			default:
 				log.Printf("[steampipe] ❌ %s: %v", mapping.Table, err)
@@ -56,17 +56,84 @@ func (d *SteampipeDiscoverer) DiscoverResources(ctx context.Context, regions []s
 	return nil
 }
 
-// queryTable runs SELECT * against a Steampipe table and converts rows to DiscoveredResource.
-// If SELECT * fails and FallbackColumns are defined, retries with only those columns.
+// candidateQuery is one attempt in the query cascade for a table.
+type candidateQuery struct {
+	sql      string
+	errLabel string // label used to wrap a query error when this is the last candidate
+	// swallowRowsErrAfterEmit preserves the historical fallback-query behavior:
+	// a mid-stream row error after at least one resource was emitted is ignored.
+	swallowRowsErrAfterEmit bool
+}
+
+// candidateQueries returns the cascade of queries to try for a table:
+// SELECT * first, then (if FallbackColumns is set) the fallback columns,
+// then a minimal ID/name/region projection.
+func candidateQueries(mapping tableMapping) []candidateQuery {
+	candidates := []candidateQuery{{
+		sql:      fmt.Sprintf("SELECT * FROM %s", mapping.Table),
+		errLabel: "querying",
+	}}
+	if mapping.FallbackColumns == nil {
+		return candidates
+	}
+
+	candidates = append(candidates, candidateQuery{
+		sql:                     fmt.Sprintf("SELECT %s FROM %s", strings.Join(mapping.FallbackColumns, ", "), mapping.Table),
+		swallowRowsErrAfterEmit: true,
+	})
+
+	// Last resort: the absolute minimum — just ID, name, and region.
+	cols := []string{mapping.IDColumn}
+	if mapping.NameColumn != "" && mapping.NameColumn != mapping.IDColumn {
+		cols = append(cols, mapping.NameColumn)
+	}
+	if mapping.RegionColumn != "" {
+		cols = append(cols, mapping.RegionColumn)
+	}
+	candidates = append(candidates, candidateQuery{
+		sql:      fmt.Sprintf("SELECT %s FROM %s", strings.Join(cols, ", "), mapping.Table),
+		errLabel: "minimal query",
+	})
+	return candidates
+}
+
+// queryTable discovers resources from a Steampipe table, trying each candidate
+// query in turn until one succeeds. A failing query falls through to the next
+// candidate only if it emitted no resources; otherwise its error is returned.
 func (d *SteampipeDiscoverer) queryTable(ctx context.Context, mapping tableMapping, results chan<- provider.DiscoveredResource) error {
-	query := fmt.Sprintf("SELECT * FROM %s", mapping.Table)
+	candidates := candidateQueries(mapping)
+	for i, c := range candidates {
+		last := i == len(candidates)-1
+		count, queryErr, rowsErr := d.runQuery(ctx, c.sql, mapping, results)
+
+		if queryErr != nil {
+			if !last {
+				continue
+			}
+			return fmt.Errorf("%s %s: %w", c.errLabel, mapping.Table, queryErr)
+		}
+		if rowsErr != nil {
+			if count == 0 && !last {
+				continue
+			}
+			if c.swallowRowsErrAfterEmit && count > 0 {
+				return nil
+			}
+			return rowsErr
+		}
+		return nil
+	}
+	return nil // unreachable: candidates is never empty
+}
+
+// runQuery executes a single SQL query, converts each row into a metadata map,
+// and emits the resulting DiscoveredResources. It returns the number of
+// resources emitted, an error from executing the query itself (queryErr), and
+// an error encountered while iterating rows (rowsErr).
+func (d *SteampipeDiscoverer) runQuery(ctx context.Context, query string, mapping tableMapping, results chan<- provider.DiscoveredResource) (count int, queryErr, rowsErr error) {
 	rows, err := d.pool.Query(ctx, query)
 	if err != nil {
-		// Try fallback with minimal columns if available.
-		if mapping.FallbackColumns != nil {
-			return d.queryTableFallback(ctx, mapping, results)
-		}
-		return fmt.Errorf("querying %s: %w", mapping.Table, err)
+		return 0, err, nil
 	}
 	defer rows.Close()
 
@@ -76,7 +143,6 @@ func (d *SteampipeDiscoverer) queryTable(ctx context.Context, mapping tableMappi
 		colNames[i] = string(fd.Name)
 	}
 
-	count := 0
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
@@ -90,108 +156,13 @@ func (d *SteampipeDiscoverer) queryTable(ctx context.Context, mapping tableMappi
 			metadata[col] = values[i]
 		}
 
-		res := d.buildResource(mapping, metadata)
-		if res != nil {
+		if res := d.buildResource(mapping, metadata); res != nil {
 			results <- *res
 			count++
 		}
 	}
 
-	if err := rows.Err(); err != nil {
-		// If we got zero rows due to an error, try fallback.
-		if count == 0 && mapping.FallbackColumns != nil {
-			return d.queryTableFallback(ctx, mapping, results)
-		}
-		return err
-	}
-
-	return nil
-}
-
-// queryTableFallback queries only the minimal columns needed for inventory.
-func (d *SteampipeDiscoverer) queryTableFallback(ctx context.Context, mapping tableMapping, results chan<- provider.DiscoveredResource) error {
-	cols := strings.Join(mapping.FallbackColumns, ", ")
-	query := fmt.Sprintf("SELECT %s FROM %s", cols, mapping.Table)
-	rows, err := d.pool.Query(ctx, query)
-	if err != nil {
-		// Last resort: try just the ID and name columns.
-		return d.queryTableMinimal(ctx, mapping, results)
-	}
-	defer rows.Close()
-
-	fieldDescs := rows.FieldDescriptions()
-	colNames := make([]string, len(fieldDescs))
-	for i, fd := range fieldDescs {
-		colNames[i] = string(fd.Name)
-	}
-
-	count := 0
-	for rows.Next() {
-		values, err := rows.Values()
-		if err != nil {
-			continue
-		}
-
-		metadata := make(map[string]any, len(colNames))
-		for i, col := range colNames {
-			metadata[col] = values[i]
-		}
-
-		res := d.buildResource(mapping, metadata)
-		if res != nil {
-			results <- *res
-			count++
-		}
-	}
-
-	if err := rows.Err(); err != nil && count == 0 {
-		return d.queryTableMinimal(ctx, mapping, results)
-	}
-
-	return nil
-}
-
-// queryTableMinimal tries the absolute minimum: just ID, name, and region.
-func (d *SteampipeDiscoverer) queryTableMinimal(ctx context.Context, mapping tableMapping, results chan<- provider.DiscoveredResource) error {
-	cols := []string{mapping.IDColumn}
-	if mapping.NameColumn != "" && mapping.NameColumn != mapping.IDColumn {
-		cols = append(cols, mapping.NameColumn)
-	}
-	if mapping.RegionColumn != "" {
-		cols = append(cols, mapping.RegionColumn)
-	}
-
-	query := fmt.Sprintf("SELECT %s FROM %s", strings.Join(cols, ", "), mapping.Table)
-	rows, err := d.pool.Query(ctx, query)
-	if err != nil {
-		return fmt.Errorf("minimal query %s: %w", mapping.Table, err)
-	}
-	defer rows.Close()
-
-	fieldDescs := rows.FieldDescriptions()
-	colNames := make([]string, len(fieldDescs))
-	for i, fd := range fieldDescs {
-		colNames[i] = string(fd.Name)
-	}
-
-	for rows.Next() {
-		values, err := rows.Values()
-		if err != nil {
-			continue
-		}
-
-		metadata := make(map[string]any, len(colNames))
-		for i, col := range colNames {
-			metadata[col] = values[i]
-		}
-
-		res := d.buildResource(mapping, metadata)
-		if res != nil {
-			results <- *res
-		}
-	}
-
-	return rows.Err()
+	return count, nil, rows.Err()
 }
 
 // buildResource converts a metadata map into a DiscoveredResource.
@@ -301,6 +272,11 @@ func ociTableMappings() []tableMapping {
 }
 
 // getStringFromMap extracts a string value from the metadata map.
+//
+// Deliberately NOT replaced by metautil.GetString: pgx row values are typed
+// (numbers, *string, jsonb maps, ...), and this helper dereferences *string
+// and stringifies non-string values via fmt.Sprintf("%v"), whereas
+// metautil.GetString ignores non-string values entirely.
 func getStringFromMap(m map[string]any, key string) string {
 	if key == "" {
 		return ""
@@ -352,9 +328,4 @@ func extractTags(metadata map[string]any) map[string]string {
 	}
 
 	return tags
-}
-
-// contains is a simple string-contains check for error classification.
-func contains(s, substr string) bool {
-	return strings.Contains(s, substr)
 }
