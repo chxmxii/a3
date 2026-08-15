@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/chxmxii/a3/internal/storage"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // BillingCost represents actual cost from AWS Cost Explorer.
@@ -109,28 +110,19 @@ func StoreBillingCosts(store *storage.Store, assessmentID string, billing *Billi
 
 func mapServiceToCategory(service string) string {
 	switch {
-	case contains(service, "EC2") || contains(service, "Compute"):
+	case strings.Contains(service, "EC2") || strings.Contains(service, "Compute"):
 		return string(CostCategoryCompute)
-	case contains(service, "RDS") || contains(service, "Database") || contains(service, "DynamoDB") || contains(service, "ElastiCache"):
+	case strings.Contains(service, "RDS") || strings.Contains(service, "Database") || strings.Contains(service, "DynamoDB") || strings.Contains(service, "ElastiCache"):
 		return string(CostCategoryDatabase)
-	case contains(service, "S3") || contains(service, "EFS") || contains(service, "Backup") || contains(service, "Storage"):
+	case strings.Contains(service, "S3") || strings.Contains(service, "EFS") || strings.Contains(service, "Backup") || strings.Contains(service, "Storage"):
 		return string(CostCategoryStorage)
-	case contains(service, "VPC") || contains(service, "CloudFront") || contains(service, "Route 53") || contains(service, "Transfer") || contains(service, "ELB"):
+	case strings.Contains(service, "VPC") || strings.Contains(service, "CloudFront") || strings.Contains(service, "Route 53") || strings.Contains(service, "Transfer") || strings.Contains(service, "ELB"):
 		return string(CostCategoryNetworking)
-	case contains(service, "EKS") || contains(service, "ECS") || contains(service, "Fargate"):
+	case strings.Contains(service, "EKS") || strings.Contains(service, "ECS") || strings.Contains(service, "Fargate"):
 		return string(CostCategoryKubernetes)
-	case contains(service, "Lambda"):
+	case strings.Contains(service, "Lambda"):
 		return string(CostCategoryServerless)
 	default:
 		return string(CostCategoryOther)
 	}
-}
-
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
