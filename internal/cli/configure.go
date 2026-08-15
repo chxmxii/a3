@@ -72,26 +72,9 @@ func runConfigure() error {
 		// region subscribed by the tenancy's home region.
 		defaultRegion = "*"
 	}
-	fmt.Printf("Regions? (comma-separated, * for all, default %s): ", defaultRegion)
-	regionsInput, err := readLine(reader)
+	regions, err := promptRegions(reader, defaultRegion)
 	if err != nil {
 		return err
-	}
-	var regions []string
-	if regionsInput == "" {
-		regions = []string{defaultRegion}
-	} else if strings.TrimSpace(regionsInput) == "*" {
-		regions = []string{"*"}
-	} else {
-		for _, r := range strings.Split(regionsInput, ",") {
-			r = strings.TrimSpace(r)
-			if r != "" {
-				regions = append(regions, r)
-			}
-		}
-	}
-	if len(regions) == 0 {
-		regions = []string{defaultRegion}
 	}
 
 	// Step 5: Write Steampipe connection config.
@@ -122,6 +105,40 @@ func runConfigure() error {
 	ensureSteampipeService(reader)
 
 	// Step 8: Summary.
+	printConfigureSummary(profileName, provider, awsProfile, ociProfile, regions)
+
+	return nil
+}
+
+// promptRegions asks for a comma-separated region list, falling back to
+// defaultRegion on empty input.
+func promptRegions(reader *bufio.Reader, defaultRegion string) ([]string, error) {
+	fmt.Printf("Regions? (comma-separated, * for all, default %s): ", defaultRegion)
+	regionsInput, err := readLine(reader)
+	if err != nil {
+		return nil, err
+	}
+	var regions []string
+	if regionsInput == "" {
+		regions = []string{defaultRegion}
+	} else if strings.TrimSpace(regionsInput) == "*" {
+		regions = []string{"*"}
+	} else {
+		for _, r := range strings.Split(regionsInput, ",") {
+			r = strings.TrimSpace(r)
+			if r != "" {
+				regions = append(regions, r)
+			}
+		}
+	}
+	if len(regions) == 0 {
+		regions = []string{defaultRegion}
+	}
+	return regions, nil
+}
+
+// printConfigureSummary prints the post-wizard recap.
+func printConfigureSummary(profileName, provider, awsProfile, ociProfile string, regions []string) {
 	spcFile := "aws.spc"
 	connPrefix := "aws"
 	if provider == "oci" {
@@ -144,8 +161,6 @@ func runConfigure() error {
 	fmt.Printf("  A3 Config:  ~/.a3/config.yaml\n")
 	fmt.Println()
 	fmt.Printf("  Run: a3 assess %s\n", profileName)
-
-	return nil
 }
 
 // configureAWSCredentials prompts for the AWS credential method and returns the

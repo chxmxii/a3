@@ -6,8 +6,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -100,10 +98,42 @@ func newAssessCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&connString, "steampipe-conn", "postgres://steampipe@localhost:9193/steampipe", "Steampipe connection string")
+	cmd.Flags().StringVar(&connString, "steampipe-conn", "", "Steampipe connection string (default \""+defaultSteampipeConn+"\")")
 	cmd.Flags().BoolVar(&noTUI, "no-tui", false, "skip TUI and print summary to stdout")
 
 	return cmd
+}
+
+// printBanner prints the ASCII header and assessment identity line.
+func printBanner(profileName, provider, assessmentID string) {
+	fmt.Println()
+	fmt.Println(accentStyle.Render("    ___   _____   "))
+	fmt.Println(accentStyle.Render("   / _ \\ |____ |  "))
+	fmt.Println(accentStyle.Render("  / /_\\ \\    / /  "))
+	fmt.Println(accentStyle.Render("  |  _  |    \\ \\  "))
+	fmt.Println(accentStyle.Render("  | | | |.___/ /  "))
+	fmt.Println(accentStyle.Render("  \\_| |_/\\____/   "))
+	fmt.Println()
+	fmt.Printf("  %s\n", dimStyle.Render("Agnostic Account Assessment"))
+	fmt.Printf("  %s\n\n", dimStyle.Render(fmt.Sprintf("Profile: %s | Provider: %s | ID: %s", profileName, provider, assessmentID[:8])))
+}
+
+// runStep runs fn under a spinner. fn returns the message to display and an
+// error; on error the message is shown as the failure line. A non-nil error is
+// returned to the caller only when fatal is true — non-fatal steps log the
+// failure and let the assessment continue.
+func runStep(label string, fatal bool, fn func() (string, error)) error {
+	s := newSpinner(label)
+	msg, err := fn()
+	if err != nil {
+		s.fail(msg)
+		if fatal {
+			return err
+		}
+		return nil
+	}
+	s.succeed(msg)
+	return nil
 }
 
 func runAssessment(profileName, connString string, noTUI bool) error {
@@ -118,9 +148,9 @@ func runAssessment(profileName, connString string, noTUI bool) error {
 		return err
 	}
 
-	// Load config.
-	cfgPath := config.DefaultConfigPath()
-	cfg, err := config.Load(cfgPath)
+	// Load config. Without a config file, fall back to a default profile so a
+	// bare `a3 assess <name>` still works against aws/us-east-1.
+	cfg, err := config.Load(config.DefaultConfigPath())
 	if err != nil {
 		cfg = &config.Config{
 			DBPath: resolveDBPath(getDBPath()),
@@ -139,16 +169,13 @@ func runAssessment(profileName, connString string, noTUI bool) error {
 		return fmt.Errorf("profile error: %w", err)
 	}
 
-	// Open storage.
-	dbFile := resolveDBPath(getDBPath())
-	if cfg.DBPath != "" {
-		dbFile = resolveDBPath(cfg.DBPath)
-	}
-	store, err := storage.Open(dbFile)
+	store, err := openStore(cfg)
 	if err != nil {
-		return fmt.Errorf("opening database: %w", err)
+		return err
 	}
 	defer store.Close()
+
+	connString = steampipeConnString(connString, cfg)
 
 	// Create assessment.
 	assessmentID := uuid.New().String()
@@ -165,19 +192,8 @@ func runAssessment(profileName, connString string, noTUI bool) error {
 		return fmt.Errorf("creating assessment: %w", err)
 	}
 
-	// Header.
-	fmt.Println()
-	fmt.Println(accentStyle.Render("    ___   _____   "))
-	fmt.Println(accentStyle.Render("   / _ \\ |____ |  "))
-	fmt.Println(accentStyle.Render("  / /_\\ \\    / /  "))
-	fmt.Println(accentStyle.Render("  |  _  |    \\ \\  "))
-	fmt.Println(accentStyle.Render("  | | | |.___/ /  "))
-	fmt.Println(accentStyle.Render("  \\_| |_/\\____/   "))
-	fmt.Println()
-	fmt.Printf("  %s\n", dimStyle.Render("Agnostic Account Assessment"))
-	fmt.Printf("  %s\n\n", dimStyle.Render(fmt.Sprintf("Profile: %s | Provider: %s | ID: %s", profileName, profile.Provider, assessmentID[:8])))
+	printBanner(profileName, profile.Provider, assessmentID)
 
-	
 	// Step 1: Connect and validate.
 	sp1 := newSpinner("Connecting to Steampipe and validating credentials...")
 	sp, err := steampipe.NewSteampipeProvider(connString, profile.Provider)
@@ -218,67 +234,63 @@ func runAssessment(profileName, connString string, noTUI bool) error {
 	}
 	sp3.succeed(fmt.Sprintf("Discovered %d resources across %d regions", summary.TotalResources, len(summary.ByRegion)))
 
-	// Step 4: Architecture.
-	sp4 := newSpinner("Reconstructing architecture...")
-	reconstructor := architecture.NewReconstructor(store, profile.Provider)
-	if err := reconstructor.Reconstruct(assessmentID); err != nil {
-		sp4.fail("Architecture: " + err.Error())
-	} else {
-		rels, _ := store.GetRelationshipsByAssessment(assessmentID)
-		sp4.succeed(fmt.Sprintf("Mapped %d relationships", len(rels)))
-	}
-
-	// Step 5: Assessment.
-	sp5 := newSpinner("Running security assessment...")
-	var rules []assessment.Rule
-	switch profile.Provider {
-	case "aws":
-		rules = awsrules.AllRules()
-	case "oci":
-		rules = ocirules.AllRules()
-	}
-	assessEngine := assessment.NewEngine(store, rules)
-	_ = assessEngine.Run(ctx, assessmentID)
-	findings, _ := store.GetFindingsByAssessment(assessmentID)
-	sp5.succeed(fmt.Sprintf("Security: %d findings", len(findings)))
-
-	// Step 6: Sizing.
-	sp6 := newSpinner("Analyzing infrastructure sizing...")
-	sizingAnalyzer := sizing.NewAnalyzer(store)
-	sizingSummary, err := sizingAnalyzer.Analyze(assessmentID)
-	if err != nil {
-		sp6.fail("Sizing unavailable")
-	} else {
-		sp6.succeed(fmt.Sprintf("Sizing: %d vCPUs, %.1f GB memory", sizingSummary.TotalVCPUs, sizingSummary.TotalMemoryGB))
-	}
-
-	// Step 7: Cost.
-	sp7 := newSpinner("Fetching cost data...")
-	// Try real billing data from AWS Cost Explorer (via Steampipe) first.
-	billingData, billingErr := cost.QueryBilling(ctx, sp.Pool())
-	if billingErr == nil && billingData != nil {
-		cost.StoreBillingCosts(store, assessmentID, billingData)
-		sp7.succeed(fmt.Sprintf("Actual cost: $%.2f/month (%s)", billingData.TotalMonthlyCost, billingData.Message))
-	} else {
-		// Fallback to static estimation.
-		costEstimator := cost.NewEstimator(store)
-		costSummary, err := costEstimator.Estimate(assessmentID)
-		if err != nil {
-			sp7.fail("Cost estimation unavailable")
-		} else {
-			sp7.succeed(fmt.Sprintf("Estimated $%.2f/month (static catalog — real billing data unavailable)", costSummary.TotalMonthlyCost))
+	// Step 4: Architecture (non-fatal).
+	_ = runStep("Reconstructing architecture...", false, func() (string, error) {
+		reconstructor := architecture.NewReconstructor(store, profile.Provider)
+		if err := reconstructor.Reconstruct(assessmentID); err != nil {
+			return "Architecture: " + err.Error(), err
 		}
-	}
+		rels, _ := store.GetRelationshipsByAssessment(assessmentID)
+		return fmt.Sprintf("Mapped %d relationships", len(rels)), nil
+	})
 
-	// Step 8: Checklist.
-	sp8 := newSpinner("Generating checklist...")
-	checkEngine := checklist.NewEngine(store)
-	checkSummary, err := checkEngine.Generate(assessmentID)
-	if err != nil {
-		sp8.fail("Checklist unavailable")
-	} else {
-		sp8.succeed(fmt.Sprintf("Checklist: %d pass, %d fail, %d warn", checkSummary.PassCount, checkSummary.FailCount, checkSummary.WarnCount))
-	}
+	// Step 5: Assessment (non-fatal).
+	_ = runStep("Running security assessment...", false, func() (string, error) {
+		var rules []assessment.Rule
+		switch profile.Provider {
+		case "aws":
+			rules = awsrules.AllRules()
+		case "oci":
+			rules = ocirules.AllRules()
+		}
+		assessEngine := assessment.NewEngine(store, rules)
+		_ = assessEngine.Run(ctx, assessmentID)
+		findings, _ := store.GetFindingsByAssessment(assessmentID)
+		return fmt.Sprintf("Security: %d findings", len(findings)), nil
+	})
+
+	// Step 6: Sizing (non-fatal).
+	_ = runStep("Analyzing infrastructure sizing...", false, func() (string, error) {
+		sizingSummary, err := sizing.NewAnalyzer(store).Analyze(assessmentID)
+		if err != nil {
+			return "Sizing unavailable", err
+		}
+		return fmt.Sprintf("Sizing: %d vCPUs, %.1f GB memory", sizingSummary.TotalVCPUs, sizingSummary.TotalMemoryGB), nil
+	})
+
+	// Step 7: Cost (non-fatal). Try real billing data from AWS Cost Explorer
+	// (via Steampipe) first, then fall back to static estimation.
+	_ = runStep("Fetching cost data...", false, func() (string, error) {
+		billingData, billingErr := cost.QueryBilling(ctx, sp.Pool())
+		if billingErr == nil && billingData != nil {
+			cost.StoreBillingCosts(store, assessmentID, billingData)
+			return fmt.Sprintf("Actual cost: $%.2f/month (%s)", billingData.TotalMonthlyCost, billingData.Message), nil
+		}
+		costSummary, err := cost.NewEstimator(store).Estimate(assessmentID)
+		if err != nil {
+			return "Cost estimation unavailable", err
+		}
+		return fmt.Sprintf("Estimated $%.2f/month (static catalog — real billing data unavailable)", costSummary.TotalMonthlyCost), nil
+	})
+
+	// Step 8: Checklist (non-fatal).
+	_ = runStep("Generating checklist...", false, func() (string, error) {
+		checkSummary, err := checklist.NewEngine(store).Generate(assessmentID)
+		if err != nil {
+			return "Checklist unavailable", err
+		}
+		return fmt.Sprintf("Checklist: %d pass, %d fail, %d warn", checkSummary.PassCount, checkSummary.FailCount, checkSummary.WarnCount), nil
+	})
 
 	// Done.
 	completedAt := time.Now()
@@ -302,15 +314,4 @@ func runAssessment(profileName, connString string, noTUI bool) error {
 	}
 
 	return nil
-}
-
-func resolveDBPath(path string) string {
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return path
-		}
-		return filepath.Join(home, path[2:])
-	}
-	return path
 }
