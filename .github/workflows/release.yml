@@ -35,7 +35,7 @@ jobs:
             apt: gcc-aarch64-linux-gnu
           - goos: darwin
             goarch: amd64
-            runner: macos-13      # Intel runner -> native cgo
+            runner: macos-14      # ARM runner; clang cross-compiles x86_64 (cgo passes -arch x86_64)
           - goos: darwin
             goarch: arm64
             runner: macos-14      # Apple Silicon runner -> native cgo
