@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/chxmxii/a3/internal/storage"
 )
 
@@ -17,6 +18,28 @@ type architectureView struct {
 	relationships []storage.Relationship
 	scrollOffset  int
 	mode          string
+}
+
+// handleKey handles a key press for the architecture view. Returns true if
+// the key was handled.
+func (v *architectureView) handleKey(key string) bool {
+	switch key {
+	case "up", "k":
+		if v.scrollOffset > 0 {
+			v.scrollOffset--
+		}
+	case "down", "j":
+		v.scrollOffset++
+	case "n":
+		v.mode = ArchModeNetwork
+		v.scrollOffset = 0
+	case "v":
+		v.mode = ArchModeResource
+		v.scrollOffset = 0
+	default:
+		return false
+	}
+	return true
 }
 
 func (v *architectureView) render(width, height int) string {
@@ -79,67 +102,117 @@ func (v *architectureView) render(width, height int) string {
 		return b.String()
 	}
 
-	// Apply scroll.
+	// Apply scroll. The clamped offset is intentionally not written back to
+	// v.scrollOffset, matching the original behavior.
 	maxRows := height - 10
 	if maxRows < 5 {
 		maxRows = 5
 	}
 	offset := v.scrollOffset
-	maxOffset := len(lines) - maxRows
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if offset > maxOffset {
-		offset = maxOffset
-	}
-	if offset < 0 {
-		offset = 0
-	}
-	end := offset + maxRows
-	if end > len(lines) {
-		end = len(lines)
-	}
-
-	for i := offset; i < end; i++ {
-		b.WriteString(lines[i])
-		b.WriteString("\n")
-	}
+	b.WriteString(renderScrollable(lines, &offset, maxRows))
 
 	if len(lines) > maxRows {
-		pct := 0
-		if maxOffset > 0 {
-			pct = (offset * 100) / maxOffset
-		}
-		b.WriteString(dimNavStyle.Render(fmt.Sprintf("\n  ↕ scroll %d%% (%d lines)", pct, len(lines))))
+		b.WriteString(dimNavStyle.Render(fmt.Sprintf("\n  ↕ scroll %d%% (%d lines)", scrollPct(len(lines), offset, maxRows), len(lines))))
 	}
 
 	return b.String()
 }
 
-// networkTypes are the resource types shown in the network view.
-var networkTypes = map[string]bool{
-	"vpc":              true,
-	"subnet":           true,
-	"route_table":      true,
-	"security_group":   true,
-	"internet_gateway": true,
-	"nat_gateway":      true,
-	"transit_gateway":  true,
-	"ec2_instance":     true,
+// typeEntry describes how a resource type is displayed and which
+// architecture views it appears in.
+type typeEntry struct {
+	label    string
+	style    lipgloss.Style
+	network  bool // shown in the network view
+	resource bool // shown in the resource view
 }
 
+// typeTable drives colorType and the per-view type membership sets.
+var typeTable = map[string]typeEntry{
+	"vpc":              {label: "[vpc]", style: titleStyle, network: true},
+	"subnet":           {label: "[subnet]", style: regionBadgeStyle, network: true},
+	"route_table":      {label: "[route_table]", style: dimNavStyle, network: true},
+	"security_group":   {label: "[security_group]", style: severityMediumStyle, network: true},
+	"internet_gateway": {label: "[igw]", style: routeIGWStyle, network: true},
+	"nat_gateway":      {label: "[nat]", style: routeNATStyle, network: true},
+	"transit_gateway":  {label: "[tgw]", style: regionBadgeStyle, network: true},
+	"ec2_instance":     {label: "[ec2]", style: passStyle, network: true, resource: true},
+	"alb":              {label: "[alb]", style: severityMediumStyle, resource: true},
+	"nlb":              {label: "[nlb]", style: severityMediumStyle, resource: true},
+	"target_group":     {label: "[target_group]", style: dimNavStyle, resource: true},
+	"eks_cluster":      {label: "[eks]", style: titleStyle, resource: true},
+	"eks_node_group":   {label: "[node_group]", style: regionBadgeStyle, resource: true},
+	"ecs_cluster":      {label: "[ecs]", style: titleStyle, resource: true},
+	"lambda_function":  {label: "[lambda]", style: routeNATStyle, resource: true},
+	"rds_instance":     {label: "[rds]", style: severityHighStyle, resource: true},
+	"efs_file_system":  {label: "[efs]", style: routeLocalStyle, resource: true},
+}
+
+// typeSet builds a type membership set from typeTable.
+func typeSet(pick func(typeEntry) bool) map[string]bool {
+	set := make(map[string]bool)
+	for t, e := range typeTable {
+		if pick(e) {
+			set[t] = true
+		}
+	}
+	return set
+}
+
+// networkTypes are the resource types shown in the network view.
+var networkTypes = typeSet(func(e typeEntry) bool { return e.network })
+
 // resourceViewTypes are the resource types shown in the resource view.
-var resourceViewTypes = map[string]bool{
-	"alb":             true,
-	"nlb":             true,
-	"target_group":    true,
-	"ec2_instance":    true,
-	"eks_cluster":     true,
-	"eks_node_group":  true,
-	"ecs_cluster":     true,
-	"lambda_function": true,
-	"rds_instance":    true,
-	"efs_file_system": true,
+var resourceViewTypes = typeSet(func(e typeEntry) bool { return e.resource })
+
+// associateToParent maps each resource to its parent ID, preferring an
+// explicit relationship in parentOf and falling back to the metaKey value in
+// the resource's metadata.
+func associateToParent(resources []storage.Resource, parentOf map[string]string, metaKey string) map[string]string {
+	assoc := make(map[string]string)
+	for _, r := range resources {
+		if parent, hasParent := parentOf[r.ResourceID]; hasParent {
+			assoc[r.ResourceID] = parent
+			continue
+		}
+		if r.RawMetadata != nil {
+			if id, ok := r.RawMetadata[metaKey].(string); ok && id != "" {
+				assoc[r.ResourceID] = id
+			}
+		}
+	}
+	return assoc
+}
+
+// filterByParent returns the resources associated to parentID in assoc,
+// preserving order.
+func filterByParent(resources []storage.Resource, assoc map[string]string, parentID string) []storage.Resource {
+	var out []storage.Resource
+	for _, r := range resources {
+		if assoc[r.ResourceID] == parentID {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// treeBranch returns the connector for a tree node and the indent to prepend
+// for its children.
+func treeBranch(isLast bool) (connector, childIndent string) {
+	if isLast {
+		return "└── ", "    "
+	}
+	return "├── ", "│   "
+}
+
+// treeNodeLine renders one tree node line: prefix, connector, colored type
+// label and display name.
+func treeNodeLine(prefix, connector string, r storage.Resource, nameMap map[string]string) string {
+	name := nameMap[r.ResourceID]
+	if name == "" {
+		name = r.ResourceID
+	}
+	return fmt.Sprintf("%s%s%s %s", prefix, connector, colorType(r.ResourceType), name)
 }
 
 // buildNetworkLines builds the network topology view:
@@ -147,19 +220,15 @@ var resourceViewTypes = map[string]bool{
 func (v *architectureView) buildNetworkLines(nameMap, typeMap map[string]string) []string {
 	var lines []string
 
-	// Index resources by type and ID.
-	resourceByID := make(map[string]storage.Resource)
+	// Index resources by type.
 	resourcesByType := make(map[string][]storage.Resource)
 	for _, r := range v.resources {
 		if networkTypes[r.ResourceType] {
-			resourceByID[r.ResourceID] = r
 			resourcesByType[r.ResourceType] = append(resourcesByType[r.ResourceType], r)
 		}
 	}
 
-	// Build relationship maps.
-	// childrenOf[parentID] = list of child resource IDs
-	childrenOf := make(map[string][]string)
+	// Build relationship map: parentOf[childID] = parent resource ID.
 	parentOf := make(map[string]string)
 	for _, rel := range v.relationships {
 		srcType := typeMap[rel.SourceID]
@@ -167,84 +236,20 @@ func (v *architectureView) buildNetworkLines(nameMap, typeMap map[string]string)
 		if !networkTypes[srcType] || !networkTypes[tgtType] {
 			continue
 		}
-		childrenOf[rel.SourceID] = append(childrenOf[rel.SourceID], rel.TargetID)
 		parentOf[rel.TargetID] = rel.SourceID
 	}
 
-	// Also use metadata to associate subnets to VPCs if no explicit relationship.
-	vpcForSubnet := make(map[string]string)
-	for _, sub := range resourcesByType["subnet"] {
-		// Check if already has parent via relationships.
-		if _, hasParent := parentOf[sub.ResourceID]; hasParent {
-			vpcForSubnet[sub.ResourceID] = parentOf[sub.ResourceID]
-			continue
-		}
-		// Try metadata vpc_id.
-		if sub.RawMetadata != nil {
-			if vpcID, ok := sub.RawMetadata["vpc_id"].(string); ok && vpcID != "" {
-				vpcForSubnet[sub.ResourceID] = vpcID
-			}
-		}
-	}
-
-	// Associate EC2 to subnets via metadata.
-	subnetForEC2 := make(map[string]string)
-	for _, ec2 := range resourcesByType["ec2_instance"] {
-		if _, hasParent := parentOf[ec2.ResourceID]; hasParent {
-			subnetForEC2[ec2.ResourceID] = parentOf[ec2.ResourceID]
-			continue
-		}
-		if ec2.RawMetadata != nil {
-			if subID, ok := ec2.RawMetadata["subnet_id"].(string); ok && subID != "" {
-				subnetForEC2[ec2.ResourceID] = subID
-			}
-		}
-	}
-
-	// Associate SGs to VPCs via metadata.
-	vpcForSG := make(map[string]string)
-	for _, sg := range resourcesByType["security_group"] {
-		if _, hasParent := parentOf[sg.ResourceID]; hasParent {
-			vpcForSG[sg.ResourceID] = parentOf[sg.ResourceID]
-			continue
-		}
-		if sg.RawMetadata != nil {
-			if vpcID, ok := sg.RawMetadata["vpc_id"].(string); ok && vpcID != "" {
-				vpcForSG[sg.ResourceID] = vpcID
-			}
-		}
-	}
-
-	// Associate Gateways to VPCs via metadata or relationships.
-	vpcForGW := make(map[string]string)
+	// Associate children to parents via relationships or metadata.
 	gwTypes := []string{"internet_gateway", "nat_gateway", "transit_gateway"}
+	var gateways []storage.Resource
 	for _, gwType := range gwTypes {
-		for _, gw := range resourcesByType[gwType] {
-			if _, hasParent := parentOf[gw.ResourceID]; hasParent {
-				vpcForGW[gw.ResourceID] = parentOf[gw.ResourceID]
-				continue
-			}
-			if gw.RawMetadata != nil {
-				if vpcID, ok := gw.RawMetadata["vpc_id"].(string); ok && vpcID != "" {
-					vpcForGW[gw.ResourceID] = vpcID
-				}
-			}
-		}
+		gateways = append(gateways, resourcesByType[gwType]...)
 	}
-
-	// Associate route tables to subnets via metadata or relationships.
-	subnetForRT := make(map[string]string)
-	for _, rt := range resourcesByType["route_table"] {
-		if _, hasParent := parentOf[rt.ResourceID]; hasParent {
-			subnetForRT[rt.ResourceID] = parentOf[rt.ResourceID]
-			continue
-		}
-		if rt.RawMetadata != nil {
-			if subID, ok := rt.RawMetadata["subnet_id"].(string); ok && subID != "" {
-				subnetForRT[rt.ResourceID] = subID
-			}
-		}
-	}
+	vpcForSubnet := associateToParent(resourcesByType["subnet"], parentOf, "vpc_id")
+	subnetForEC2 := associateToParent(resourcesByType["ec2_instance"], parentOf, "subnet_id")
+	vpcForSG := associateToParent(resourcesByType["security_group"], parentOf, "vpc_id")
+	vpcForGW := associateToParent(gateways, parentOf, "vpc_id")
+	subnetForRT := associateToParent(resourcesByType["route_table"], parentOf, "subnet_id")
 
 	// Render VPC trees.
 	vpcs := resourcesByType["vpc"]
@@ -254,119 +259,32 @@ func (v *architectureView) buildNetworkLines(nameMap, typeMap map[string]string)
 	}
 
 	for vi, vpc := range vpcs {
-		vpcName := nameMap[vpc.ResourceID]
-		if vpcName == "" {
-			vpcName = vpc.ResourceID
-		}
-		isLastVPC := vi == len(vpcs)-1
-		vpcPrefix := "  ├── "
-		vpcChildPrefix := "  │   "
-		if isLastVPC {
-			vpcPrefix = "  └── "
-			vpcChildPrefix = "      "
-		}
+		vpcConnector, vpcIndent := treeBranch(vi == len(vpcs)-1)
+		vpcChildPrefix := "  " + vpcIndent
 
-		lines = append(lines, fmt.Sprintf("%s%s %s", vpcPrefix, titleStyle.Render("[vpc]"), vpcName))
+		lines = append(lines, treeNodeLine("  ", vpcConnector, vpc, nameMap))
 
-		// Collect children for this VPC.
-		var vpcSubnets []storage.Resource
-		for _, sub := range resourcesByType["subnet"] {
-			if vpcForSubnet[sub.ResourceID] == vpc.ResourceID {
-				vpcSubnets = append(vpcSubnets, sub)
+		// Collect children for this VPC: subnets, then SGs, then gateways.
+		children := filterByParent(resourcesByType["subnet"], vpcForSubnet, vpc.ResourceID)
+		children = append(children, filterByParent(resourcesByType["security_group"], vpcForSG, vpc.ResourceID)...)
+		children = append(children, filterByParent(gateways, vpcForGW, vpc.ResourceID)...)
+
+		for ci, child := range children {
+			connector, indent := treeBranch(ci == len(children)-1)
+			lines = append(lines, treeNodeLine(vpcChildPrefix, connector, child, nameMap))
+
+			if child.ResourceType != "subnet" {
+				continue
 			}
-		}
-
-		var vpcSGs []storage.Resource
-		for _, sg := range resourcesByType["security_group"] {
-			if vpcForSG[sg.ResourceID] == vpc.ResourceID {
-				vpcSGs = append(vpcSGs, sg)
-			}
-		}
-
-		var vpcGWs []storage.Resource
-		for _, gwType := range gwTypes {
-			for _, gw := range resourcesByType[gwType] {
-				if vpcForGW[gw.ResourceID] == vpc.ResourceID {
-					vpcGWs = append(vpcGWs, gw)
-				}
-			}
-		}
-
-		totalVPCChildren := len(vpcSubnets) + len(vpcSGs) + len(vpcGWs)
-		childIdx := 0
-
-		// Subnets.
-		for _, sub := range vpcSubnets {
-			childIdx++
-			isLastChild := childIdx == totalVPCChildren
-			subConnector := "├── "
-			subChildPrefix := vpcChildPrefix + "│   "
-			if isLastChild {
-				subConnector = "└── "
-				subChildPrefix = vpcChildPrefix + "    "
-			}
-
-			subName := nameMap[sub.ResourceID]
-			if subName == "" {
-				subName = sub.ResourceID
-			}
-			lines = append(lines, fmt.Sprintf("%s%s%s %s", vpcChildPrefix, subConnector, colorType("subnet"), subName))
 
 			// Route tables and EC2 in this subnet.
-			var subChildren []storage.Resource
-			for _, rt := range resourcesByType["route_table"] {
-				if subnetForRT[rt.ResourceID] == sub.ResourceID {
-					subChildren = append(subChildren, rt)
-				}
-			}
-			for _, ec2 := range resourcesByType["ec2_instance"] {
-				if subnetForEC2[ec2.ResourceID] == sub.ResourceID {
-					subChildren = append(subChildren, ec2)
-				}
-			}
-
+			subChildPrefix := vpcChildPrefix + indent
+			subChildren := filterByParent(resourcesByType["route_table"], subnetForRT, child.ResourceID)
+			subChildren = append(subChildren, filterByParent(resourcesByType["ec2_instance"], subnetForEC2, child.ResourceID)...)
 			for sci, sc := range subChildren {
-				isLastSC := sci == len(subChildren)-1
-				scConnector := "├── "
-				if isLastSC {
-					scConnector = "└── "
-				}
-				scName := nameMap[sc.ResourceID]
-				if scName == "" {
-					scName = sc.ResourceID
-				}
-				lines = append(lines, fmt.Sprintf("%s%s%s %s", subChildPrefix, scConnector, colorType(sc.ResourceType), scName))
+				scConnector, _ := treeBranch(sci == len(subChildren)-1)
+				lines = append(lines, treeNodeLine(subChildPrefix, scConnector, sc, nameMap))
 			}
-		}
-
-		// Security Groups.
-		for _, sg := range vpcSGs {
-			childIdx++
-			isLastChild := childIdx == totalVPCChildren
-			sgConnector := "├── "
-			if isLastChild {
-				sgConnector = "└── "
-			}
-			sgName := nameMap[sg.ResourceID]
-			if sgName == "" {
-				sgName = sg.ResourceID
-			}
-			lines = append(lines, fmt.Sprintf("%s%s%s %s", vpcChildPrefix, sgConnector, colorType("security_group"), sgName))
-		}
-
-		// Gateways.
-		for _, gw := range vpcGWs {
-			childIdx++
-			isLastChild := childIdx == totalVPCChildren
-			gwConnector := "├── "
-			if isLastChild {
-				gwConnector = "└── "
-			}
-			gwName := nameMap[gw.ResourceID]
-			if gwName == "" {
-				gwName = gw.ResourceID
-			}
-			lines = append(lines, fmt.Sprintf("%s%s%s %s", vpcChildPrefix, gwConnector, colorType(gw.ResourceType), gwName))
 		}
 	}
 
@@ -467,49 +385,10 @@ func (v *architectureView) buildResourceTree(lines *[]string, resourceID, prefix
 	}
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // colorType returns a styled type label based on the resource type.
 func colorType(resType string) string {
-	switch resType {
-	case "vpc":
-		return titleStyle.Render("[vpc]")
-	case "subnet":
-		return regionBadgeStyle.Render("[subnet]")
-	case "route_table":
-		return dimNavStyle.Render("[route_table]")
-	case "security_group":
-		return severityMediumStyle.Render("[security_group]")
-	case "internet_gateway":
-		return routeIGWStyle.Render("[igw]")
-	case "nat_gateway":
-		return routeNATStyle.Render("[nat]")
-	case "transit_gateway":
-		return regionBadgeStyle.Render("[tgw]")
-	case "ec2_instance":
-		return passStyle.Render("[ec2]")
-	case "alb", "nlb":
-		return severityMediumStyle.Render("[" + resType + "]")
-	case "target_group":
-		return dimNavStyle.Render("[target_group]")
-	case "eks_cluster":
-		return titleStyle.Render("[eks]")
-	case "eks_node_group":
-		return regionBadgeStyle.Render("[node_group]")
-	case "ecs_cluster":
-		return titleStyle.Render("[ecs]")
-	case "lambda_function":
-		return routeNATStyle.Render("[lambda]")
-	case "rds_instance":
-		return severityHighStyle.Render("[rds]")
-	case "efs_file_system":
-		return routeLocalStyle.Render("[efs]")
-	default:
-		return normalStyle.Render("[" + resType + "]")
+	if e, ok := typeTable[resType]; ok {
+		return e.style.Render(e.label)
 	}
+	return normalStyle.Render("[" + resType + "]")
 }

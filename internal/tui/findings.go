@@ -14,6 +14,40 @@ type findingsView struct {
 	offset         int
 }
 
+// severityKeys maps key presses to severity filters.
+var severityKeys = map[string]string{
+	"c": "critical",
+	"h": "high",
+	"m": "medium",
+	"l": "low",
+}
+
+// handleKey handles a key press for the findings view. Returns true if the
+// key was handled. The scroll offset is clamped to the cursor at render time.
+func (v *findingsView) handleKey(key string) bool {
+	switch key {
+	case "up", "k":
+		if v.cursor > 0 {
+			v.cursor--
+		}
+	case "down", "j":
+		if v.cursor < len(v.filteredFindings())-1 {
+			v.cursor++
+		}
+	case "x":
+		v.severityFilter = ""
+		v.cursor = 0
+	default:
+		severity, ok := severityKeys[key]
+		if !ok {
+			return false
+		}
+		v.severityFilter = severity
+		v.cursor = 0
+	}
+	return true
+}
+
 func (v *findingsView) render(width, height int) string {
 	var b strings.Builder
 
@@ -48,17 +82,9 @@ func (v *findingsView) render(width, height int) string {
 		maxRows = 5
 	}
 
-	if v.cursor < v.offset {
-		v.offset = v.cursor
-	}
-	if v.cursor >= v.offset+maxRows {
-		v.offset = v.cursor - maxRows + 1
-	}
+	clampCursorScroll(v.cursor, &v.offset, maxRows)
 
-	end := v.offset + maxRows
-	if end > len(filtered) {
-		end = len(filtered)
-	}
+	end := min(v.offset+maxRows, len(filtered))
 
 	for i := v.offset; i < end; i++ {
 		f := filtered[i]
@@ -110,13 +136,7 @@ func (v *findingsView) render(width, height int) string {
 	}
 
 	// Scroll indicator.
-	if len(filtered) > maxRows {
-		pct := 0
-		if len(filtered)-maxRows > 0 {
-			pct = (v.offset * 100) / (len(filtered) - maxRows)
-		}
-		b.WriteString(dimNavStyle.Render(fmt.Sprintf("\n  ↕ scroll %d%%", pct)))
-	}
+	b.WriteString(scrollFooter(len(filtered), v.offset, maxRows))
 
 	return b.String()
 }

@@ -14,6 +14,22 @@ type costView struct {
 	scrollOffset int
 }
 
+// handleKey handles a key press for the cost view. Returns true if the key
+// was handled.
+func (v *costView) handleKey(key string) bool {
+	switch key {
+	case "up", "k":
+		if v.scrollOffset > 0 {
+			v.scrollOffset--
+		}
+	case "down", "j":
+		v.scrollOffset++
+	default:
+		return false
+	}
+	return true
+}
+
 func (v *costView) render(width, height int) string {
 	var b strings.Builder
 
@@ -31,26 +47,8 @@ func (v *costView) render(width, height int) string {
 	if maxRows < 10 {
 		maxRows = 10
 	}
-	if v.scrollOffset > len(lines)-maxRows {
-		v.scrollOffset = max(0, len(lines)-maxRows)
-	}
-	end := v.scrollOffset + maxRows
-	if end > len(lines) {
-		end = len(lines)
-	}
-
-	for i := v.scrollOffset; i < end; i++ {
-		b.WriteString(lines[i])
-		b.WriteString("\n")
-	}
-
-	if len(lines) > maxRows {
-		pct := 0
-		if len(lines)-maxRows > 0 {
-			pct = (v.scrollOffset * 100) / (len(lines) - maxRows)
-		}
-		b.WriteString(dimNavStyle.Render(fmt.Sprintf("\n  ↕ scroll %d%%", pct)))
-	}
+	b.WriteString(renderScrollable(lines, &v.scrollOffset, maxRows))
+	b.WriteString(scrollFooter(len(lines), v.scrollOffset, maxRows))
 
 	return b.String()
 }
