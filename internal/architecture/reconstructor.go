@@ -3,6 +3,7 @@ package architecture
 import (
 	"log"
 
+	"github.com/chxmxii/a3/internal/metautil"
 	"github.com/chxmxii/a3/internal/storage"
 )
 
@@ -49,7 +50,7 @@ func (r *Reconstructor) Reconstruct(assessmentID string) error {
 			"instance_id", "instanceId", "cluster_name", "group_id", "groupId",
 			"route_table_id", "routeTableId", "internet_gateway_id", "nat_gateway_id",
 			"transit_gateway_id", "id", "vcn_id"} {
-			if val := getStr(res.RawMetadata, key); val != "" {
+			if val := metautil.GetString(res.RawMetadata, key); val != "" {
 				// Only store if not already taken (first match wins).
 				mapKey := key + ":" + val
 				if _, exists := byInternalID[mapKey]; !exists {
@@ -74,21 +75,4 @@ func (r *Reconstructor) Reconstruct(assessmentID string) error {
 	}
 
 	return nil
-}
-
-// getStr extracts a string from a map[string]any safely.
-func getStr(m map[string]any, key string) string {
-	if m == nil {
-		return ""
-	}
-	v, ok := m[key]
-	if !ok || v == nil {
-		return ""
-	}
-	switch val := v.(type) {
-	case string:
-		return val
-	default:
-		return ""
-	}
 }

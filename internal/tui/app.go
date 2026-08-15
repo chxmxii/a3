@@ -5,7 +5,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/chxmxii/a3/internal/storage"
 )
 
@@ -35,8 +37,10 @@ type Model struct {
 	findings     findingsView
 	cost         costView
 
-	loaded bool
-	err    error
+	spinner  spinner.Model
+	showHelp bool
+	loaded   bool
+	err      error
 }
 
 // dataLoadedMsg is sent when data has been loaded from the store.
@@ -57,12 +61,13 @@ func NewModel(store *storage.Store, assessmentID string) Model {
 		store:        store,
 		assessmentID: assessmentID,
 		activeView:   ViewOverview,
+		spinner:      spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(spinnerStyle)),
 	}
 }
 
 // Init starts the TUI.
 func (m Model) Init() tea.Cmd {
-	return m.loadData
+	return tea.Batch(m.loadData, m.spinner.Tick)
 }
 
 func (m Model) loadData() tea.Msg {
@@ -128,9 +133,31 @@ func (m Model) loadData() tea.Msg {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
+		key := msg.String()
+
+		// Always allow ctrl+c to quit, even in text-entry mode.
+		if key == "ctrl+c" {
 			return m, tea.Quit
+		}
+
+		// A view in text-entry mode (e.g. inventory search) gets every key,
+		// including the global ones.
+		if m.viewCapturesInput() {
+			m.handleViewKey(key)
+			return m, nil
+		}
+
+		// Any key closes the help overlay.
+		if m.showHelp {
+			m.showHelp = false
+			return m, nil
+		}
+
+		switch key {
+		case "q":
+			return m, tea.Quit
+		case "?":
+			m.showHelp = true
 		case "1":
 			m.activeView = ViewOverview
 		case "2":
@@ -141,85 +168,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeView = ViewFindings
 		case "5":
 			m.activeView = ViewCost
+		default:
+			// Forward everything else to the active view.
+			m.handleViewKey(key)
+		}
 
-		// Navigation.
-		case "up", "k":
-			m.handleUp()
-		case "down", "j":
-			m.handleDown()
-		case "enter":
-			if m.activeView == ViewInventory {
-				m.inventory.toggleDetail()
-			}
-		case "esc":
-			if m.activeView == ViewInventory && m.inventory.showDetail {
-				m.inventory.showDetail = false
-				m.inventory.detailScroll = 0
-			}
-
-		// Architecture mode toggle.
-		case "n":
-			if m.activeView == ViewArchitecture {
-				m.architecture.mode = ArchModeNetwork
-				m.architecture.scrollOffset = 0
-			}
-		case "v":
-			if m.activeView == ViewArchitecture {
-				m.architecture.mode = ArchModeResource
-				m.architecture.scrollOffset = 0
-			}
-
-		// Region cycling in Inventory.
-		case "r":
-			if m.activeView == ViewInventory {
-				m.inventory.nextRegion()
-			}
-		case "R":
-			if m.activeView == ViewInventory {
-				m.inventory.prevRegion()
-			}
-
-		// Type filter in Inventory.
-		case "t":
-			if m.activeView == ViewInventory {
-				m.inventory.nextType()
-			}
-		case "T":
-			if m.activeView == ViewInventory {
-				m.inventory.prevType()
-			}
-
-		// Clear filters.
-		case "x":
-			if m.activeView == ViewInventory {
-				m.inventory.clearFilters()
-			}
-			if m.activeView == ViewFindings {
-				m.findings.severityFilter = ""
-				m.findings.cursor = 0
-			}
-
-		// Findings severity filters.
-		case "c":
-			if m.activeView == ViewFindings {
-				m.findings.severityFilter = "critical"
-				m.findings.cursor = 0
-			}
-		case "h":
-			if m.activeView == ViewFindings {
-				m.findings.severityFilter = "high"
-				m.findings.cursor = 0
-			}
-		case "m":
-			if m.activeView == ViewFindings {
-				m.findings.severityFilter = "medium"
-				m.findings.cursor = 0
-			}
-		case "l":
-			if m.activeView == ViewFindings {
-				m.findings.severityFilter = "low"
-				m.findings.cursor = 0
-			}
+	case spinner.TickMsg:
+		if !m.loaded && m.err == nil {
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
 		}
 
 	case tea.WindowSizeMsg:
@@ -241,80 +199,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) handleUp() {
-	switch m.activeView {
-	case ViewOverview:
-		if m.overview.scrollOffset > 0 {
-			m.overview.scrollOffset--
-		}
-	case ViewInventory:
-		if m.inventory.showDetail {
-			if m.inventory.detailScroll > 0 {
-				m.inventory.detailScroll--
-			}
-		} else {
-			if m.inventory.cursor > 0 {
-				m.inventory.cursor--
-				if m.inventory.cursor < m.inventory.offset {
-					m.inventory.offset = m.inventory.cursor
-				}
-			}
-		}
-	case ViewFindings:
-		if m.findings.cursor > 0 {
-			m.findings.cursor--
-			if m.findings.cursor < m.findings.offset {
-				m.findings.offset = m.findings.cursor
-			}
-		}
-	case ViewArchitecture:
-		if m.architecture.scrollOffset > 0 {
-			m.architecture.scrollOffset--
-		}
-	case ViewCost:
-		if m.cost.scrollOffset > 0 {
-			m.cost.scrollOffset--
-		}
-	}
+// viewCapturesInput reports whether the active view is in a text-entry mode
+// that must receive every key press, including global ones.
+func (m *Model) viewCapturesInput() bool {
+	return m.activeView == ViewInventory && m.inventory.capturesInput()
 }
 
-func (m *Model) handleDown() {
+// handleViewKey forwards a non-global key to the active view. Returns true
+// if the view handled it.
+func (m *Model) handleViewKey(key string) bool {
 	switch m.activeView {
 	case ViewOverview:
-		m.overview.scrollOffset++
+		return m.overview.handleKey(key)
 	case ViewInventory:
-		if m.inventory.showDetail {
-			m.inventory.detailScroll++
-		} else {
-			filtered := m.inventory.filteredResources()
-			if m.inventory.cursor < len(filtered)-1 {
-				m.inventory.cursor++
-				maxVisible := m.height - 12
-				if maxVisible < 5 {
-					maxVisible = 5
-				}
-				if m.inventory.cursor >= m.inventory.offset+maxVisible {
-					m.inventory.offset++
-				}
-			}
-		}
-	case ViewFindings:
-		filtered := m.findings.filteredFindings()
-		if m.findings.cursor < len(filtered)-1 {
-			m.findings.cursor++
-			maxVisible := m.height - 12
-			if maxVisible < 5 {
-				maxVisible = 5
-			}
-			if m.findings.cursor >= m.findings.offset+maxVisible {
-				m.findings.offset++
-			}
-		}
+		return m.inventory.handleKey(key)
 	case ViewArchitecture:
-		m.architecture.scrollOffset++
+		return m.architecture.handleKey(key)
+	case ViewFindings:
+		return m.findings.handleKey(key)
 	case ViewCost:
-		m.cost.scrollOffset++
+		return m.cost.handleKey(key)
 	}
+	return false
 }
 
 // View renders the TUI.
@@ -324,7 +230,7 @@ func (m Model) View() string {
 	}
 
 	if !m.loaded {
-		return "\n  Loading assessment data...\n"
+		return "\n  " + m.spinner.View() + " Loading assessment data...\n"
 	}
 
 	// Fixed layout: nav (2 lines) + content (fills) + help (1 line).
@@ -338,17 +244,21 @@ func (m Model) View() string {
 	}
 
 	var content string
-	switch m.activeView {
-	case ViewOverview:
-		content = m.overview.render(m.width, contentHeight)
-	case ViewInventory:
-		content = m.inventory.render(m.width, contentHeight)
-	case ViewArchitecture:
-		content = m.architecture.render(m.width, contentHeight)
-	case ViewFindings:
-		content = m.findings.render(m.width, contentHeight)
-	case ViewCost:
-		content = m.cost.render(m.width, contentHeight)
+	if m.showHelp {
+		content = m.renderHelpOverlay(contentHeight)
+	} else {
+		switch m.activeView {
+		case ViewOverview:
+			content = m.overview.render(m.width, contentHeight)
+		case ViewInventory:
+			content = m.inventory.render(m.width, contentHeight)
+		case ViewArchitecture:
+			content = m.architecture.render(m.width, contentHeight)
+		case ViewFindings:
+			content = m.findings.render(m.width, contentHeight)
+		case ViewCost:
+			content = m.cost.render(m.width, contentHeight)
+		}
 	}
 
 	// Truncate content if it exceeds available height.
@@ -384,17 +294,23 @@ func (m Model) renderNav() string {
 		}
 	}
 
-	return "\n " + joinStrings(parts, dimNavStyle.Render("│"))
+	return "\n " + strings.Join(parts, dimNavStyle.Render("│"))
 }
 
 func (m Model) renderHelp() string {
-	base := "q:quit  ↑↓:scroll  1-5:views"
+	if m.showHelp {
+		return helpStyle.Render("  press any key to close help")
+	}
+	base := "q:quit  ↑↓:scroll  1-5:views  ?:help"
 	switch m.activeView {
 	case ViewInventory:
+		if m.inventory.searchInput {
+			return helpStyle.Render("  type to search  enter:apply  esc:cancel")
+		}
 		if m.inventory.showDetail {
 			base += "  esc/x:back  ↑↓:scroll"
 		} else {
-			base += "  enter:details  r/R:region  t/T:type  x:clear"
+			base += "  enter:details  /:search  r/R:region  t/T:type  x:clear"
 		}
 	case ViewArchitecture:
 		base += "  n:network  v:resource"
@@ -404,13 +320,39 @@ func (m Model) renderHelp() string {
 	return helpStyle.Render("  " + base)
 }
 
-func joinStrings(parts []string, sep string) string {
-	result := ""
-	for i, p := range parts {
-		if i > 0 {
-			result += sep
-		}
-		result += p
+// renderHelpOverlay renders a centered box listing all keybindings.
+func (m Model) renderHelpOverlay(contentHeight int) string {
+	rows := []string{
+		titleStyle.Render("Keybindings"),
+		"",
+		keyStyle.Render("Global"),
+		"  q / ctrl+c    quit",
+		"  1-5           switch view",
+		"  ?             toggle this help",
+		"  ↑↓ / k j      scroll / move cursor",
+		"",
+		keyStyle.Render("Inventory"),
+		"  enter         resource details",
+		"  esc           back to list",
+		"  /             search (enter:apply, esc:cancel)",
+		"  r / R         cycle region filter",
+		"  t / T         cycle type filter",
+		"  x             clear filters / close details",
+		"",
+		keyStyle.Render("Architecture"),
+		"  n             network view",
+		"  v             resource view",
+		"",
+		keyStyle.Render("Findings"),
+		"  c / h / m / l filter by severity",
+		"  x             clear filter",
+		"",
+		dimNavStyle.Render("press any key to close"),
 	}
-	return result
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(primaryColor).
+		Padding(0, 2).
+		Render(strings.Join(rows, "\n"))
+	return lipgloss.Place(m.width, contentHeight, lipgloss.Center, lipgloss.Center, box)
 }

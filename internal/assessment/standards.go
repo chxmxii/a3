@@ -17,6 +17,9 @@ type Control struct {
 }
 
 // BuiltInStandards returns the compliance standards supported by 3A.
+// Every (Standard, ControlID) pair referenced by a rule in
+// internal/assessment/rules must have a matching control here; the
+// checklist engine derives its checks from this catalog.
 func BuiltInStandards() []Standard {
 	return []Standard{
 		{
@@ -35,6 +38,37 @@ func BuiltInStandards() []Standard {
 				{ID: "SEC-009", Name: "OCI NSG Open Ingress", Description: "NSGs should not allow unrestricted ingress", Category: CategorySecurity},
 				{ID: "SEC-010", Name: "OCI Volume Encryption", Description: "Block volumes should be encrypted", Category: CategorySecurity},
 				{ID: "SEC-011", Name: "OCI DB Public Access", Description: "Database systems should not be publicly accessible", Category: CategorySecurity},
+			},
+		},
+		{
+			Name:        "CIS AWS Foundations",
+			Version:     "1.0",
+			Description: "CIS AWS Foundations benchmark controls checked by 3A",
+			Controls: []Control{
+				{ID: "SEC-009", Name: "EC2 Public IP", Description: "EC2 instances should not have public IP addresses assigned directly", Category: CategorySecurity},
+				{ID: "SEC-010", Name: "EC2 IMDSv2 Enforcement", Description: "EC2 instances should enforce IMDSv2 for instance metadata access", Category: CategorySecurity},
+				{ID: "SEC-011", Name: "RDS Storage Encryption", Description: "RDS instances should have storage encryption at rest enabled", Category: CategorySecurity},
+				{ID: "SEC-012", Name: "VPC Flow Logs", Description: "VPCs should have flow logs enabled", Category: CategorySecurity},
+				{ID: "SEC-013", Name: "Default Security Group Rules", Description: "Default security groups should not have inbound rules configured", Category: CategorySecurity},
+				{ID: "SEC-016", Name: "Load Balancer Access Logs", Description: "Load balancers should have access logging enabled", Category: CategorySecurity},
+			},
+		},
+		{
+			Name:        "AWS Well-Architected",
+			Version:     "1.0",
+			Description: "AWS Well-Architected framework controls checked by 3A",
+			Controls: []Control{
+				{ID: "SEC-008", Name: "Lambda VPC Attachment", Description: "Lambda functions accessing private resources should be attached to a VPC", Category: CategorySecurity},
+				{ID: "SEC-014", Name: "Subnet Public IP Auto-Assign", Description: "Subnets should not auto-assign public IPs to instances", Category: CategorySecurity},
+				{ID: "SEC-015", Name: "ALB WAF Protection", Description: "Internet-facing ALBs should have a WAF Web ACL associated", Category: CategorySecurity},
+				{ID: "COST-001", Name: "Lambda Memory Sizing", Description: "Lambda functions should not be over-provisioned with memory", Category: CategoryCostOptimization},
+				{ID: "COST-002", Name: "Stopped EC2 Instances", Description: "Stopped EC2 instances should be terminated or their EBS volumes reclaimed", Category: CategoryCostOptimization},
+				{ID: "REL-001", Name: "Lambda Dead Letter Queue", Description: "Lambda functions should have a dead letter queue configured", Category: CategoryReliability},
+				{ID: "REL-002", Name: "RDS Multi-AZ", Description: "RDS instances should use Multi-AZ deployment for automatic failover", Category: CategoryReliability},
+				{ID: "REL-003", Name: "RDS Automated Backups", Description: "RDS instances should have automated backups enabled", Category: CategoryReliability},
+				{ID: "REL-004", Name: "Load Balancer Deletion Protection", Description: "Load balancers should have deletion protection enabled", Category: CategoryReliability},
+				{ID: "OPS-001", Name: "Lambda Runtime Version", Description: "Lambda functions should use supported runtime versions", Category: CategoryOperationalExcellence},
+				{ID: "OPS-002", Name: "RDS Auto Minor Upgrade", Description: "RDS instances should have auto minor version upgrade enabled", Category: CategoryOperationalExcellence},
 			},
 		},
 	}

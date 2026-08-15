@@ -3,6 +3,7 @@ package checklist
 import (
 	"fmt"
 
+	"github.com/chxmxii/a3/internal/assessment"
 	"github.com/chxmxii/a3/internal/storage"
 )
 
@@ -100,18 +101,19 @@ func matchesCheck(key string, check checkDef) bool {
 	return false
 }
 
+// allChecks derives the checklist from the assessment standards catalog, so
+// every control referenced by a rule appears in the generated checklist.
 func allChecks() []checkDef {
-	return []checkDef{
-		{Name: "S3 Public Access", Description: "No S3 buckets allow public access", Category: "Security", ControlIDs: []string{"SEC-001"}},
-		{Name: "Security Group Restrictions", Description: "Security groups restrict access on dangerous ports", Category: "Security", ControlIDs: []string{"SEC-002"}},
-		{Name: "EBS Encryption", Description: "All EBS volumes are encrypted", Category: "Security", ControlIDs: []string{"SEC-003"}},
-		{Name: "RDS Private Access", Description: "RDS instances are not publicly accessible", Category: "Security", ControlIDs: []string{"SEC-004"}},
-		{Name: "IAM MFA Enabled", Description: "All IAM users have MFA enabled", Category: "Security", ControlIDs: []string{"SEC-005"}},
-		{Name: "EKS Private Endpoint", Description: "EKS clusters use private endpoints", Category: "Security", ControlIDs: []string{"SEC-006"}},
-		{Name: "S3 Encryption", Description: "All S3 buckets have default encryption", Category: "Security", ControlIDs: []string{"SEC-007"}},
-		{Name: "OCI Bucket Privacy", Description: "Object Storage buckets are not public", Category: "Security", ControlIDs: []string{"SEC-008"}},
-		{Name: "OCI NSG Rules", Description: "NSGs restrict ingress appropriately", Category: "Security", ControlIDs: []string{"SEC-009"}},
-		{Name: "OCI Volume Encryption", Description: "Block volumes use customer-managed keys", Category: "Security", ControlIDs: []string{"SEC-010"}},
-		{Name: "OCI DB Protection", Description: "Database systems have NSG protection", Category: "Security", ControlIDs: []string{"SEC-011"}},
+	var checks []checkDef
+	for _, std := range assessment.BuiltInStandards() {
+		for _, control := range std.Controls {
+			checks = append(checks, checkDef{
+				Name:        control.Name,
+				Description: control.Description,
+				Category:    string(control.Category),
+				ControlIDs:  []string{control.ID},
+			})
+		}
 	}
+	return checks
 }

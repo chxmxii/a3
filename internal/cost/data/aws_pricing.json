@@ -1,0 +1,557 @@
+{
+  "instances": [
+    {
+      "type": "c5.18xlarge",
+      "vcpus": 72,
+      "mem_gb": 144,
+      "family": "compute",
+      "hourly_usd": 3.06
+    },
+    {
+      "type": "c5.2xlarge",
+      "vcpus": 8,
+      "mem_gb": 16,
+      "family": "compute",
+      "hourly_usd": 0.34
+    },
+    {
+      "type": "c5.4xlarge",
+      "vcpus": 16,
+      "mem_gb": 32,
+      "family": "compute",
+      "hourly_usd": 0.68
+    },
+    {
+      "type": "c5.9xlarge",
+      "vcpus": 36,
+      "mem_gb": 72,
+      "family": "compute",
+      "hourly_usd": 1.53
+    },
+    {
+      "type": "c5.large",
+      "vcpus": 2,
+      "mem_gb": 4,
+      "family": "compute",
+      "hourly_usd": 0.085
+    },
+    {
+      "type": "c5.xlarge",
+      "vcpus": 4,
+      "mem_gb": 8,
+      "family": "compute",
+      "hourly_usd": 0.17
+    },
+    {
+      "type": "c6g.2xlarge",
+      "hourly_usd": 0.272
+    },
+    {
+      "type": "c6g.4xlarge",
+      "hourly_usd": 0.544
+    },
+    {
+      "type": "c6g.large",
+      "hourly_usd": 0.068
+    },
+    {
+      "type": "c6g.medium",
+      "hourly_usd": 0.034
+    },
+    {
+      "type": "c6g.xlarge",
+      "hourly_usd": 0.136
+    },
+    {
+      "type": "c6i.2xlarge",
+      "hourly_usd": 0.34
+    },
+    {
+      "type": "c6i.4xlarge",
+      "hourly_usd": 0.68
+    },
+    {
+      "type": "c6i.8xlarge",
+      "hourly_usd": 1.36
+    },
+    {
+      "type": "c6i.large",
+      "hourly_usd": 0.085
+    },
+    {
+      "type": "c6i.xlarge",
+      "hourly_usd": 0.17
+    },
+    {
+      "type": "db.m5.2xlarge",
+      "vcpus": 8,
+      "mem_gb": 32,
+      "family": "database",
+      "hourly_usd": 0.684
+    },
+    {
+      "type": "db.m5.4xlarge",
+      "vcpus": 16,
+      "mem_gb": 64,
+      "family": "database",
+      "hourly_usd": 1.368
+    },
+    {
+      "type": "db.m5.large",
+      "vcpus": 2,
+      "mem_gb": 8,
+      "family": "database",
+      "hourly_usd": 0.171
+    },
+    {
+      "type": "db.m5.xlarge",
+      "vcpus": 4,
+      "mem_gb": 16,
+      "family": "database",
+      "hourly_usd": 0.342
+    },
+    {
+      "type": "db.m6i.large",
+      "hourly_usd": 0.171
+    },
+    {
+      "type": "db.m6i.xlarge",
+      "hourly_usd": 0.342
+    },
+    {
+      "type": "db.r5.2xlarge",
+      "vcpus": 8,
+      "mem_gb": 64,
+      "family": "database",
+      "hourly_usd": 0.96
+    },
+    {
+      "type": "db.r5.large",
+      "vcpus": 2,
+      "mem_gb": 16,
+      "family": "database",
+      "hourly_usd": 0.24
+    },
+    {
+      "type": "db.r5.xlarge",
+      "vcpus": 4,
+      "mem_gb": 32,
+      "family": "database",
+      "hourly_usd": 0.48
+    },
+    {
+      "type": "db.r6i.large",
+      "hourly_usd": 0.24
+    },
+    {
+      "type": "db.r6i.xlarge",
+      "hourly_usd": 0.48
+    },
+    {
+      "type": "db.t2.medium",
+      "hourly_usd": 0.068
+    },
+    {
+      "type": "db.t2.micro",
+      "hourly_usd": 0.017
+    },
+    {
+      "type": "db.t2.small",
+      "hourly_usd": 0.034
+    },
+    {
+      "type": "db.t3.large",
+      "vcpus": 2,
+      "mem_gb": 8,
+      "family": "database",
+      "hourly_usd": 0.136
+    },
+    {
+      "type": "db.t3.medium",
+      "vcpus": 2,
+      "mem_gb": 4,
+      "family": "database",
+      "hourly_usd": 0.068
+    },
+    {
+      "type": "db.t3.micro",
+      "vcpus": 2,
+      "mem_gb": 1,
+      "family": "database",
+      "hourly_usd": 0.017
+    },
+    {
+      "type": "db.t3.small",
+      "vcpus": 2,
+      "mem_gb": 2,
+      "family": "database",
+      "hourly_usd": 0.034
+    },
+    {
+      "type": "m5.12xlarge",
+      "vcpus": 48,
+      "mem_gb": 192,
+      "family": "general",
+      "hourly_usd": 2.304
+    },
+    {
+      "type": "m5.16xlarge",
+      "vcpus": 64,
+      "mem_gb": 256,
+      "family": "general",
+      "hourly_usd": 3.072
+    },
+    {
+      "type": "m5.24xlarge",
+      "vcpus": 96,
+      "mem_gb": 384,
+      "family": "general",
+      "hourly_usd": 4.608
+    },
+    {
+      "type": "m5.2xlarge",
+      "vcpus": 8,
+      "mem_gb": 32,
+      "family": "general",
+      "hourly_usd": 0.384
+    },
+    {
+      "type": "m5.4xlarge",
+      "vcpus": 16,
+      "mem_gb": 64,
+      "family": "general",
+      "hourly_usd": 0.768
+    },
+    {
+      "type": "m5.8xlarge",
+      "vcpus": 32,
+      "mem_gb": 128,
+      "family": "general",
+      "hourly_usd": 1.536
+    },
+    {
+      "type": "m5.large",
+      "vcpus": 2,
+      "mem_gb": 8,
+      "family": "general",
+      "hourly_usd": 0.096
+    },
+    {
+      "type": "m5.xlarge",
+      "vcpus": 4,
+      "mem_gb": 16,
+      "family": "general",
+      "hourly_usd": 0.192
+    },
+    {
+      "type": "m5a.2xlarge",
+      "hourly_usd": 0.344
+    },
+    {
+      "type": "m5a.4xlarge",
+      "hourly_usd": 0.688
+    },
+    {
+      "type": "m5a.large",
+      "hourly_usd": 0.086
+    },
+    {
+      "type": "m5a.xlarge",
+      "hourly_usd": 0.172
+    },
+    {
+      "type": "m6g.2xlarge",
+      "hourly_usd": 0.308
+    },
+    {
+      "type": "m6g.4xlarge",
+      "hourly_usd": 0.616
+    },
+    {
+      "type": "m6g.8xlarge",
+      "hourly_usd": 1.232
+    },
+    {
+      "type": "m6g.large",
+      "hourly_usd": 0.077
+    },
+    {
+      "type": "m6g.medium",
+      "hourly_usd": 0.0385
+    },
+    {
+      "type": "m6g.xlarge",
+      "hourly_usd": 0.154
+    },
+    {
+      "type": "m6i.12xlarge",
+      "hourly_usd": 2.304
+    },
+    {
+      "type": "m6i.16xlarge",
+      "hourly_usd": 3.072
+    },
+    {
+      "type": "m6i.2xlarge",
+      "vcpus": 8,
+      "mem_gb": 32,
+      "family": "general",
+      "hourly_usd": 0.384
+    },
+    {
+      "type": "m6i.4xlarge",
+      "vcpus": 16,
+      "mem_gb": 64,
+      "family": "general",
+      "hourly_usd": 0.768
+    },
+    {
+      "type": "m6i.8xlarge",
+      "hourly_usd": 1.536
+    },
+    {
+      "type": "m6i.large",
+      "vcpus": 2,
+      "mem_gb": 8,
+      "family": "general",
+      "hourly_usd": 0.096
+    },
+    {
+      "type": "m6i.xlarge",
+      "vcpus": 4,
+      "mem_gb": 16,
+      "family": "general",
+      "hourly_usd": 0.192
+    },
+    {
+      "type": "m7i.2xlarge",
+      "hourly_usd": 0.4032
+    },
+    {
+      "type": "m7i.4xlarge",
+      "hourly_usd": 0.8064
+    },
+    {
+      "type": "m7i.large",
+      "hourly_usd": 0.1008
+    },
+    {
+      "type": "m7i.xlarge",
+      "hourly_usd": 0.2016
+    },
+    {
+      "type": "r5.12xlarge",
+      "vcpus": 48,
+      "mem_gb": 384,
+      "family": "memory",
+      "hourly_usd": 3.024
+    },
+    {
+      "type": "r5.2xlarge",
+      "vcpus": 8,
+      "mem_gb": 64,
+      "family": "memory",
+      "hourly_usd": 0.504
+    },
+    {
+      "type": "r5.4xlarge",
+      "vcpus": 16,
+      "mem_gb": 128,
+      "family": "memory",
+      "hourly_usd": 1.008
+    },
+    {
+      "type": "r5.8xlarge",
+      "vcpus": 32,
+      "mem_gb": 256,
+      "family": "memory",
+      "hourly_usd": 2.016
+    },
+    {
+      "type": "r5.large",
+      "vcpus": 2,
+      "mem_gb": 16,
+      "family": "memory",
+      "hourly_usd": 0.126
+    },
+    {
+      "type": "r5.xlarge",
+      "vcpus": 4,
+      "mem_gb": 32,
+      "family": "memory",
+      "hourly_usd": 0.252
+    },
+    {
+      "type": "r5a.2xlarge",
+      "hourly_usd": 0.452
+    },
+    {
+      "type": "r5a.4xlarge",
+      "hourly_usd": 0.904
+    },
+    {
+      "type": "r5a.8xlarge",
+      "hourly_usd": 1.808
+    },
+    {
+      "type": "r5a.large",
+      "hourly_usd": 0.113
+    },
+    {
+      "type": "r5a.xlarge",
+      "hourly_usd": 0.226
+    },
+    {
+      "type": "r6g.2xlarge",
+      "hourly_usd": 0.4032
+    },
+    {
+      "type": "r6g.large",
+      "hourly_usd": 0.1008
+    },
+    {
+      "type": "r6g.medium",
+      "hourly_usd": 0.0504
+    },
+    {
+      "type": "r6g.xlarge",
+      "hourly_usd": 0.2016
+    },
+    {
+      "type": "r6i.2xlarge",
+      "hourly_usd": 0.504
+    },
+    {
+      "type": "r6i.4xlarge",
+      "hourly_usd": 1.008
+    },
+    {
+      "type": "r6i.large",
+      "hourly_usd": 0.126
+    },
+    {
+      "type": "r6i.xlarge",
+      "hourly_usd": 0.252
+    },
+    {
+      "type": "t2.2xlarge",
+      "hourly_usd": 0.3712
+    },
+    {
+      "type": "t2.large",
+      "hourly_usd": 0.0928
+    },
+    {
+      "type": "t2.medium",
+      "hourly_usd": 0.0464
+    },
+    {
+      "type": "t2.micro",
+      "hourly_usd": 0.0116
+    },
+    {
+      "type": "t2.nano",
+      "hourly_usd": 0.0058
+    },
+    {
+      "type": "t2.small",
+      "hourly_usd": 0.023
+    },
+    {
+      "type": "t2.xlarge",
+      "hourly_usd": 0.1856
+    },
+    {
+      "type": "t3.2xlarge",
+      "vcpus": 8,
+      "mem_gb": 32,
+      "family": "general",
+      "hourly_usd": 0.3328
+    },
+    {
+      "type": "t3.large",
+      "vcpus": 2,
+      "mem_gb": 8,
+      "family": "general",
+      "hourly_usd": 0.0832
+    },
+    {
+      "type": "t3.medium",
+      "vcpus": 2,
+      "mem_gb": 4,
+      "family": "general",
+      "hourly_usd": 0.0416
+    },
+    {
+      "type": "t3.micro",
+      "vcpus": 2,
+      "mem_gb": 1,
+      "family": "general",
+      "hourly_usd": 0.0104
+    },
+    {
+      "type": "t3.nano",
+      "vcpus": 2,
+      "mem_gb": 0.5,
+      "family": "general",
+      "hourly_usd": 0.0052
+    },
+    {
+      "type": "t3.small",
+      "vcpus": 2,
+      "mem_gb": 2,
+      "family": "general",
+      "hourly_usd": 0.0208
+    },
+    {
+      "type": "t3.xlarge",
+      "vcpus": 4,
+      "mem_gb": 16,
+      "family": "general",
+      "hourly_usd": 0.1664
+    },
+    {
+      "type": "t3a.2xlarge",
+      "hourly_usd": 0.3008
+    },
+    {
+      "type": "t3a.large",
+      "hourly_usd": 0.0752
+    },
+    {
+      "type": "t3a.medium",
+      "hourly_usd": 0.0376
+    },
+    {
+      "type": "t3a.micro",
+      "hourly_usd": 0.0094
+    },
+    {
+      "type": "t3a.nano",
+      "hourly_usd": 0.0047
+    },
+    {
+      "type": "t3a.small",
+      "hourly_usd": 0.0188
+    },
+    {
+      "type": "t3a.xlarge",
+      "hourly_usd": 0.1504
+    }
+  ],
+  "storage_gb_month": {
+    "gp2": 0.1,
+    "gp3": 0.08,
+    "io1": 0.125,
+    "io2": 0.125,
+    "sc1": 0.015,
+    "st1": 0.045,
+    "standard": 0.05
+  },
+  "services_hourly": {
+    "alb": 0.0225,
+    "eks_control_plane": 0.1,
+    "nat_gateway": 0.045,
+    "nlb": 0.0225
+  }
+}

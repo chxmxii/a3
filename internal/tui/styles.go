@@ -20,6 +20,9 @@ var (
 	helpStyle = lipgloss.NewStyle().
 			Foreground(mutedColor)
 
+	spinnerStyle = lipgloss.NewStyle().
+			Foreground(primaryColor)
+
 	selectedStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(primaryColor).

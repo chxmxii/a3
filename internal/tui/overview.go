@@ -16,34 +16,31 @@ type overviewView struct {
 	scrollOffset int
 }
 
+// handleKey handles a key press for the overview view. Returns true if the
+// key was handled.
+func (v *overviewView) handleKey(key string) bool {
+	switch key {
+	case "up", "k":
+		if v.scrollOffset > 0 {
+			v.scrollOffset--
+		}
+	case "down", "j":
+		v.scrollOffset++
+	default:
+		return false
+	}
+	return true
+}
+
 func (v *overviewView) render(width, height int) string {
 	lines := v.buildLines()
 
 	// Apply scroll.
-	if v.scrollOffset > len(lines)-height {
-		v.scrollOffset = max(0, len(lines)-height)
-	}
-	if v.scrollOffset < 0 {
-		v.scrollOffset = 0
-	}
-
-	end := v.scrollOffset + height
-	if end > len(lines) {
-		end = len(lines)
-	}
-
 	var b strings.Builder
-	for i := v.scrollOffset; i < end; i++ {
-		b.WriteString(lines[i])
-		b.WriteString("\n")
-	}
+	b.WriteString(renderScrollable(lines, &v.scrollOffset, height))
 
 	if len(lines) > height {
-		pct := 0
-		if len(lines)-height > 0 {
-			pct = (v.scrollOffset * 100) / (len(lines) - height)
-		}
-		b.WriteString(dimNavStyle.Render(fmt.Sprintf("  ↕ %d%%", pct)))
+		b.WriteString(dimNavStyle.Render(fmt.Sprintf("  ↕ %d%%", scrollPct(len(lines), v.scrollOffset, height))))
 	}
 
 	return b.String()

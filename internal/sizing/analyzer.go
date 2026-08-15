@@ -3,6 +3,7 @@ package sizing
 import (
 	"log"
 
+	"github.com/chxmxii/a3/internal/metautil"
 	"github.com/chxmxii/a3/internal/storage"
 )
 
@@ -88,14 +89,11 @@ func (a *Analyzer) analyzeResource(res storage.Resource) *storage.SizingEntry {
 }
 
 func (a *Analyzer) analyzeEC2(res storage.Resource) *storage.SizingEntry {
-	instanceType := getStr(res.RawMetadata, "instance_type")
-	if instanceType == "" {
-		instanceType = getStr(res.RawMetadata, "instanceType")
-	}
+	instanceType := metautil.GetString(res.RawMetadata, "instance_type", "instanceType")
 
 	data := map[string]any{
 		"instance_type": instanceType,
-		"state":         getStr(res.RawMetadata, "instance_state"),
+		"state":         metautil.GetString(res.RawMetadata, "instance_state"),
 	}
 
 	if spec := GetInstanceSpec(instanceType); spec != nil {
@@ -112,14 +110,11 @@ func (a *Analyzer) analyzeEC2(res storage.Resource) *storage.SizingEntry {
 }
 
 func (a *Analyzer) analyzeRDS(res storage.Resource) *storage.SizingEntry {
-	instanceClass := getStr(res.RawMetadata, "db_instance_class")
-	if instanceClass == "" {
-		instanceClass = getStr(res.RawMetadata, "instanceClass")
-	}
+	instanceClass := metautil.GetString(res.RawMetadata, "db_instance_class", "instanceClass")
 
 	data := map[string]any{
 		"instance_class": instanceClass,
-		"engine":         getStr(res.RawMetadata, "engine"),
+		"engine":         metautil.GetString(res.RawMetadata, "engine"),
 		"multi_az":       res.RawMetadata["multi_az"],
 	}
 
@@ -141,8 +136,8 @@ func (a *Analyzer) analyzeRDS(res storage.Resource) *storage.SizingEntry {
 
 func (a *Analyzer) analyzeKubernetes(res storage.Resource) *storage.SizingEntry {
 	data := map[string]any{
-		"name":               getStr(res.RawMetadata, "name"),
-		"kubernetes_version": getStr(res.RawMetadata, "version"),
+		"name":               metautil.GetString(res.RawMetadata, "name"),
+		"kubernetes_version": metautil.GetString(res.RawMetadata, "version"),
 	}
 
 	return &storage.SizingEntry{
@@ -154,7 +149,7 @@ func (a *Analyzer) analyzeKubernetes(res storage.Resource) *storage.SizingEntry 
 
 func (a *Analyzer) analyzeEBS(res storage.Resource) *storage.SizingEntry {
 	data := map[string]any{
-		"volume_type": getStr(res.RawMetadata, "volume_type"),
+		"volume_type": metautil.GetString(res.RawMetadata, "volume_type"),
 	}
 
 	if size, ok := res.RawMetadata["size"].(float64); ok {
@@ -179,10 +174,10 @@ func (a *Analyzer) analyzeStorage(res storage.Resource) *storage.SizingEntry {
 }
 
 func (a *Analyzer) analyzeOCICompute(res storage.Resource) *storage.SizingEntry {
-	shape := getStr(res.RawMetadata, "shape")
+	shape := metautil.GetString(res.RawMetadata, "shape")
 	data := map[string]any{
 		"shape": shape,
-		"state": getStr(res.RawMetadata, "lifecycle_state"),
+		"state": metautil.GetString(res.RawMetadata, "lifecycle_state"),
 	}
 
 	// OCI shape naming: VM.Standard.E4.Flex, VM.Standard2.1, etc.
@@ -190,7 +185,7 @@ func (a *Analyzer) analyzeOCICompute(res storage.Resource) *storage.SizingEntry 
 	if shapeConfig, ok := res.RawMetadata["shape_config"].(map[string]any); ok {
 		if ocpus, ok := shapeConfig["ocpus"].(float64); ok {
 			data["vcpus"] = int(ocpus * 2) // OCI OCPUs ≈ 2 vCPUs
-			data["memory_gb"] = ocpus * 16  // Default memory ratio
+			data["memory_gb"] = ocpus * 16 // Default memory ratio
 		}
 		if mem, ok := shapeConfig["memory_in_gbs"].(float64); ok {
 			data["memory_gb"] = mem
@@ -206,8 +201,8 @@ func (a *Analyzer) analyzeOCICompute(res storage.Resource) *storage.SizingEntry 
 
 func (a *Analyzer) analyzeOCIDB(res storage.Resource) *storage.SizingEntry {
 	data := map[string]any{
-		"shape":   getStr(res.RawMetadata, "shape"),
-		"edition": getStr(res.RawMetadata, "database_edition"),
+		"shape":   metautil.GetString(res.RawMetadata, "shape"),
+		"edition": metautil.GetString(res.RawMetadata, "database_edition"),
 	}
 
 	if nodeCount, ok := res.RawMetadata["node_count"].(float64); ok {
@@ -237,7 +232,7 @@ func (a *Analyzer) analyzeBlockVolume(res storage.Resource) *storage.SizingEntry
 
 func (a *Analyzer) analyzeLambda(res storage.Resource) *storage.SizingEntry {
 	data := map[string]any{
-		"runtime": getStr(res.RawMetadata, "runtime"),
+		"runtime": metautil.GetString(res.RawMetadata, "runtime"),
 	}
 
 	if memSize, ok := res.RawMetadata["memory_size"].(float64); ok {
@@ -249,19 +244,4 @@ func (a *Analyzer) analyzeLambda(res storage.Resource) *storage.SizingEntry {
 		ResourceID: res.ResourceID,
 		Data:       data,
 	}
-}
-
-func getStr(m map[string]any, key string) string {
-	if m == nil {
-		return ""
-	}
-	v, ok := m[key]
-	if !ok || v == nil {
-		return ""
-	}
-	s, ok := v.(string)
-	if !ok {
-		return ""
-	}
-	return s
 }

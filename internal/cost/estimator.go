@@ -4,6 +4,7 @@ import (
 	"log"
 	"sort"
 
+	"github.com/chxmxii/a3/internal/metautil"
 	"github.com/chxmxii/a3/internal/storage"
 )
 
@@ -118,13 +119,7 @@ func (e *Estimator) estimateResource(res storage.Resource) *storage.CostEstimate
 }
 
 func (e *Estimator) estimateEC2(res storage.Resource, category string) *storage.CostEstimate {
-	instanceType := getStr(res.RawMetadata, "instance_type")
-	if instanceType == "" {
-		instanceType = getStr(res.RawMetadata, "instanceType")
-	}
-	if instanceType == "" {
-		instanceType = getStr(res.RawMetadata, "instance_type_name")
-	}
+	instanceType := metautil.GetString(res.RawMetadata, "instance_type", "instanceType", "instance_type_name")
 
 	est := &storage.CostEstimate{
 		ResourceID:   res.ResourceID,
@@ -133,10 +128,7 @@ func (e *Estimator) estimateEC2(res storage.Resource, category string) *storage.
 	}
 
 	// Check if instance is stopped (idle).
-	state := getStr(res.RawMetadata, "instance_state")
-	if state == "" {
-		state = getStr(res.RawMetadata, "state")
-	}
+	state := metautil.GetString(res.RawMetadata, "instance_state", "state")
 	if state == "stopped" {
 		est.IdleFlag = true
 	}
@@ -146,7 +138,7 @@ func (e *Estimator) estimateEC2(res storage.Resource, category string) *storage.
 		return est
 	}
 
-	hourly, ok := pricingCatalog[instanceType]
+	hourly, ok := instanceHourly(instanceType)
 	if !ok {
 		// Try without dot suffix variations (e.g., "m5.large" vs "m5large").
 		est.Unestimable = true
@@ -164,10 +156,7 @@ func (e *Estimator) estimateEC2(res storage.Resource, category string) *storage.
 }
 
 func (e *Estimator) estimateRDS(res storage.Resource, category string) *storage.CostEstimate {
-	instanceClass := getStr(res.RawMetadata, "db_instance_class")
-	if instanceClass == "" {
-		instanceClass = getStr(res.RawMetadata, "instanceClass")
-	}
+	instanceClass := metautil.GetString(res.RawMetadata, "db_instance_class", "instanceClass")
 
 	est := &storage.CostEstimate{
 		ResourceID:   res.ResourceID,
@@ -175,7 +164,7 @@ func (e *Estimator) estimateRDS(res storage.Resource, category string) *storage.
 		Category:     category,
 	}
 
-	hourly, ok := pricingCatalog[instanceClass]
+	hourly, ok := instanceHourly(instanceClass)
 	if !ok {
 		est.Unestimable = true
 		return est
@@ -196,7 +185,7 @@ func (e *Estimator) estimateEBS(res storage.Resource, category string) *storage.
 		Category:     category,
 	}
 
-	volType := getStr(res.RawMetadata, "volume_type")
+	volType := metautil.GetString(res.RawMetadata, "volume_type")
 	if volType == "" {
 		volType = "gp2"
 	}
@@ -206,7 +195,7 @@ func (e *Estimator) estimateEBS(res storage.Resource, category string) *storage.
 		sizeGB = size
 	}
 
-	pricePerGB, ok := storagePricing[volType]
+	pricePerGB, ok := storageGBMonth(volType)
 	if !ok {
 		pricePerGB = 0.10 // default to gp2 pricing
 	}
@@ -220,7 +209,7 @@ func (e *Estimator) estimateEBS(res storage.Resource, category string) *storage.
 	if attachments, ok := res.RawMetadata["attachments"].([]any); ok && len(attachments) == 0 {
 		est.IdleFlag = true
 	}
-	if state := getStr(res.RawMetadata, "state"); state == "available" {
+	if state := metautil.GetString(res.RawMetadata, "state"); state == "available" {
 		est.IdleFlag = true
 	}
 
@@ -228,7 +217,7 @@ func (e *Estimator) estimateEBS(res storage.Resource, category string) *storage.
 }
 
 func (e *Estimator) estimateNATGW(res storage.Resource, category string) *storage.CostEstimate {
-	monthly := natGatewayHourly * HoursPerMonth
+	monthly := serviceHourly(svcNATGateway) * HoursPerMonth
 	conf := "high"
 	return &storage.CostEstimate{
 		ResourceID:   res.ResourceID,
@@ -240,7 +229,7 @@ func (e *Estimator) estimateNATGW(res storage.Resource, category string) *storag
 }
 
 func (e *Estimator) estimateALB(res storage.Resource, category string) *storage.CostEstimate {
-	monthly := albHourly * HoursPerMonth
+	monthly := serviceHourly(svcALB) * HoursPerMonth
 	conf := "low"
 	return &storage.CostEstimate{
 		ResourceID:   res.ResourceID,
@@ -252,7 +241,7 @@ func (e *Estimator) estimateALB(res storage.Resource, category string) *storage.
 }
 
 func (e *Estimator) estimateNLB(res storage.Resource, category string) *storage.CostEstimate {
-	monthly := nlbHourly * HoursPerMonth
+	monthly := serviceHourly(svcNLB) * HoursPerMonth
 	conf := "low"
 	return &storage.CostEstimate{
 		ResourceID:   res.ResourceID,
@@ -264,9 +253,7 @@ func (e *Estimator) estimateNLB(res storage.Resource, category string) *storage.
 }
 
 func (e *Estimator) estimateEKS(res storage.Resource, category string) *storage.CostEstimate {
-	// EKS control plane costs $0.10/hour.
-	hourly := 0.10
-	monthly := hourly * HoursPerMonth
+	monthly := serviceHourly(svcEKSControlPlane) * HoursPerMonth
 	conf := "high"
 	return &storage.CostEstimate{
 		ResourceID:   res.ResourceID,
@@ -288,19 +275,4 @@ func (e *Estimator) estimateLambda(res storage.Resource, category string) *stora
 		MonthlyCost:  &monthly,
 		Confidence:   &conf,
 	}
-}
-
-func getStr(m map[string]any, key string) string {
-	if m == nil {
-		return ""
-	}
-	v, ok := m[key]
-	if !ok || v == nil {
-		return ""
-	}
-	s, ok := v.(string)
-	if !ok {
-		return ""
-	}
-	return s
 }

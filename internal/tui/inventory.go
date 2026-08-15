@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/chxmxii/a3/internal/storage"
 )
@@ -18,6 +19,95 @@ type inventoryView struct {
 	offset       int
 	showDetail   bool // true when viewing a resource's details
 	detailScroll int
+	searchInput  bool   // true while the search input line is active
+	searchQuery  string // case-insensitive substring filter, empty means off
+}
+
+// capturesInput reports whether the view is in text-entry mode and must
+// receive every key press, including global ones.
+func (v *inventoryView) capturesInput() bool {
+	return v.searchInput
+}
+
+// handleKey handles a key press for the inventory view. Returns true if the
+// key was handled. The scroll offset is clamped to the cursor at render time.
+func (v *inventoryView) handleKey(key string) bool {
+	if v.searchInput {
+		return v.handleSearchKey(key)
+	}
+	switch key {
+	case "up", "k":
+		if v.showDetail {
+			if v.detailScroll > 0 {
+				v.detailScroll--
+			}
+		} else if v.cursor > 0 {
+			v.cursor--
+		}
+	case "down", "j":
+		if v.showDetail {
+			v.detailScroll++
+		} else if v.cursor < len(v.filteredResources())-1 {
+			v.cursor++
+		}
+	case "enter":
+		v.toggleDetail()
+	case "esc":
+		if v.showDetail {
+			v.showDetail = false
+			v.detailScroll = 0
+		}
+	case "r":
+		v.nextRegion()
+	case "R":
+		v.prevRegion()
+	case "t":
+		v.nextType()
+	case "T":
+		v.prevType()
+	case "x":
+		v.clearFilters()
+	case "/":
+		if !v.showDetail {
+			v.searchInput = true
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+// handleSearchKey handles a key press while the search input is active.
+// Every key is considered handled.
+func (v *inventoryView) handleSearchKey(key string) bool {
+	switch key {
+	case "enter":
+		// Confirm: keep the filter, leave input mode.
+		v.searchInput = false
+	case "esc":
+		// Cancel: clear the filter and leave input mode.
+		v.searchInput = false
+		v.searchQuery = ""
+		v.cursor = 0
+		v.offset = 0
+	case "backspace":
+		if v.searchQuery != "" {
+			runes := []rune(v.searchQuery)
+			v.searchQuery = string(runes[:len(runes)-1])
+			v.cursor = 0
+			v.offset = 0
+		}
+	default:
+		if key == "space" {
+			key = " "
+		}
+		if utf8.RuneCountInString(key) == 1 {
+			v.searchQuery += key
+			v.cursor = 0
+			v.offset = 0
+		}
+	}
+	return true
 }
 
 func (v *inventoryView) nextRegion() {
@@ -87,6 +177,7 @@ func (v *inventoryView) clearFilters() {
 	v.regionIdx = -1
 	v.typeFilter = ""
 	v.typeIdx = -1
+	v.searchQuery = ""
 	v.cursor = 0
 	v.offset = 0
 }
@@ -131,9 +222,24 @@ func (v *inventoryView) filteredResources() []storage.Resource {
 		if v.typeFilter != "" && r.ResourceType != v.typeFilter {
 			continue
 		}
+		if v.searchQuery != "" && !resourceMatchesSearch(r, v.searchQuery) {
+			continue
+		}
 		filtered = append(filtered, r)
 	}
 	return filtered
+}
+
+// resourceMatchesSearch reports whether the resource matches the search
+// query as a case-insensitive substring of its name, ID, type or region.
+func resourceMatchesSearch(r storage.Resource, query string) bool {
+	query = strings.ToLower(query)
+	for _, field := range []string{r.Name, r.ResourceID, r.ResourceType, r.Region} {
+		if strings.Contains(strings.ToLower(field), query) {
+			return true
+		}
+	}
+	return false
 }
 
 func (v *inventoryView) selectedResource() *storage.Resource {
@@ -171,6 +277,11 @@ func (v *inventoryView) renderList(width, height int) string {
 	} else {
 		filterParts = append(filterParts, dimNavStyle.Render("Type: all"))
 	}
+	if v.searchInput {
+		filterParts = append(filterParts, regionBadgeStyle.Render("/"+v.searchQuery+"█"))
+	} else if v.searchQuery != "" {
+		filterParts = append(filterParts, regionBadgeStyle.Render("Search: "+v.searchQuery))
+	}
 	b.WriteString("  " + strings.Join(filterParts, "  "))
 	b.WriteString("\n")
 
@@ -191,20 +302,9 @@ func (v *inventoryView) renderList(width, height int) string {
 		maxRows = 5
 	}
 
-	if v.cursor < v.offset {
-		v.offset = v.cursor
-	}
-	if v.cursor >= v.offset+maxRows {
-		v.offset = v.cursor - maxRows + 1
-	}
-	if v.offset < 0 {
-		v.offset = 0
-	}
+	clampCursorScroll(v.cursor, &v.offset, maxRows)
 
-	end := v.offset + maxRows
-	if end > len(filtered) {
-		end = len(filtered)
-	}
+	end := min(v.offset+maxRows, len(filtered))
 
 	for i := v.offset; i < end; i++ {
 		r := filtered[i]
@@ -229,13 +329,7 @@ func (v *inventoryView) renderList(width, height int) string {
 		b.WriteString("\n")
 	}
 
-	if len(filtered) > maxRows {
-		pct := 0
-		if len(filtered)-maxRows > 0 {
-			pct = (v.offset * 100) / (len(filtered) - maxRows)
-		}
-		b.WriteString(dimNavStyle.Render(fmt.Sprintf("\n  ↕ scroll %d%%", pct)))
-	}
+	b.WriteString(scrollFooter(len(filtered), v.offset, maxRows))
 
 	return b.String()
 }
@@ -254,30 +348,12 @@ func (v *inventoryView) renderDetail(width, height int) string {
 	if maxRows < 10 {
 		maxRows = 10
 	}
-	if v.detailScroll > len(lines)-maxRows {
-		v.detailScroll = max(0, len(lines)-maxRows)
-	}
-	if v.detailScroll < 0 {
-		v.detailScroll = 0
-	}
-
-	end := v.detailScroll + maxRows
-	if end > len(lines) {
-		end = len(lines)
-	}
 
 	var b strings.Builder
-	for i := v.detailScroll; i < end; i++ {
-		b.WriteString(lines[i])
-		b.WriteString("\n")
-	}
+	b.WriteString(renderScrollable(lines, &v.detailScroll, maxRows))
 
 	if len(lines) > maxRows {
-		pct := 0
-		if len(lines)-maxRows > 0 {
-			pct = (v.detailScroll * 100) / (len(lines) - maxRows)
-		}
-		b.WriteString(dimNavStyle.Render(fmt.Sprintf("  ↕ %d%%  (Esc/x: back)", pct)))
+		b.WriteString(dimNavStyle.Render(fmt.Sprintf("  ↕ %d%%  (Esc/x: back)", scrollPct(len(lines), v.detailScroll, maxRows))))
 	} else {
 		b.WriteString(dimNavStyle.Render("  Esc/x: back to list"))
 	}
@@ -299,41 +375,28 @@ func (v *inventoryView) buildDetailLines(r *storage.Resource, width int) []strin
 	}
 }
 
-func (v *inventoryView) buildSGDetail(r *storage.Resource, width int) []string {
-	var lines []string
-	meta := r.RawMetadata
+// sgRule is one parsed security group rule row.
+type sgRule struct {
+	proto      string
+	portRange  string
+	target     string // CIDR, "sg:<id>" reference, or placeholder label
+	desc       string
+	isOpen     bool // CIDR is 0.0.0.0/0 or ::/0
+	isCIDR     bool // rule came from an IP range (vs SG ref or placeholder)
+	isFallback bool // synthesized "(self/all)"/"(all)" placeholder row
+}
 
-	lines = append(lines, titleStyle.Render(fmt.Sprintf("  Security Group: %s", r.Name)))
-	lines = append(lines, "")
-
-	// Basic info.
-	lines = append(lines, headerStyle.Render("  ┌─ Info"))
-	lines = append(lines, fmt.Sprintf("  │ %s %s", keyStyle.Render("Group ID:   "), getDetailStr(meta, "group_id")))
-	lines = append(lines, fmt.Sprintf("  │ %s %s", keyStyle.Render("Name:       "), getDetailStr(meta, "group_name")))
-	lines = append(lines, fmt.Sprintf("  │ %s %s", keyStyle.Render("Description:"), getDetailStr(meta, "description")))
-	lines = append(lines, fmt.Sprintf("  │ %s %s", keyStyle.Render("VPC:        "), getDetailStr(meta, "vpc_id")))
-	lines = append(lines, fmt.Sprintf("  │ %s %s", keyStyle.Render("Region:     "), r.Region))
-	lines = append(lines, "  └─")
-	lines = append(lines, "")
-
-	// Inbound rules.
-	lines = append(lines, headerStyle.Render("  ┌─ Inbound Rules"))
-	lines = append(lines, fmt.Sprintf("  │ %s  %s  %s  %s", keyStyle.Render("PROTO     "), keyStyle.Render("PORTS      "), keyStyle.Render("SOURCE                "), keyStyle.Render("DESCRIPTION")))
-	lines = append(lines, "  │ "+strings.Repeat("─", 70))
-
-	ipPerms, _ := meta["ip_permissions"].([]any)
-	if len(ipPerms) == 0 {
-		lines = append(lines, "  │ (none)")
-	}
-	for _, perm := range ipPerms {
+// parseSGRules parses the ip_permissions entries of a security group into
+// flat rule rows. For egress rules, security group references are skipped
+// and the placeholder label is "(all)" instead of "(self/all)".
+func parseSGRules(perms []any, egress bool) []sgRule {
+	var rules []sgRule
+	for _, perm := range perms {
 		permMap, ok := perm.(map[string]any)
 		if !ok {
 			continue
 		}
-		proto := getDetailStr(permMap, "ip_protocol")
-		if proto == "" {
-			proto = getDetailStr(permMap, "IpProtocol")
-		}
+		proto := getDetailStr(permMap, "ip_protocol", "IpProtocol")
 		if proto == "-1" {
 			proto = "ALL"
 		}
@@ -356,101 +419,107 @@ func (v *inventoryView) buildSGDetail(r *storage.Resource, width int) []string {
 			if !ok {
 				continue
 			}
-			cidr := getDetailStr(iprMap, "cidr_ip")
-			if cidr == "" {
-				cidr = getDetailStr(iprMap, "CidrIp")
-			}
-			desc := getDetailStr(iprMap, "description")
-			if desc == "" {
-				desc = getDetailStr(iprMap, "Description")
-			}
-			style := normalStyle
-			if cidr == "0.0.0.0/0" || cidr == "::/0" {
-				style = severityHighStyle
-			}
-			lines = append(lines, style.Render(fmt.Sprintf("  │ %-10s %-12s %-22s %s", proto, portRange, cidr, desc)))
+			cidr := getDetailStr(iprMap, "cidr_ip", "CidrIp")
+			rules = append(rules, sgRule{
+				proto:     proto,
+				portRange: portRange,
+				target:    cidr,
+				desc:      getDetailStr(iprMap, "description", "Description"),
+				isOpen:    cidr == "0.0.0.0/0" || cidr == "::/0",
+				isCIDR:    true,
+			})
 		}
 
-		// Security group references.
-		sgRefs := getSlice(permMap, "user_id_group_pairs", "UserIdGroupPairs")
-		for _, sgr := range sgRefs {
-			sgrMap, ok := sgr.(map[string]any)
-			if !ok {
-				continue
+		// Security group references (inbound only).
+		var sgRefs []any
+		if !egress {
+			sgRefs = getSlice(permMap, "user_id_group_pairs", "UserIdGroupPairs")
+			for _, sgr := range sgRefs {
+				sgrMap, ok := sgr.(map[string]any)
+				if !ok {
+					continue
+				}
+				rules = append(rules, sgRule{
+					proto:     proto,
+					portRange: portRange,
+					target:    "sg:" + getDetailStr(sgrMap, "group_id", "GroupId"),
+					desc:      getDetailStr(sgrMap, "description", "Description"),
+				})
 			}
-			sgID := getDetailStr(sgrMap, "group_id")
-			if sgID == "" {
-				sgID = getDetailStr(sgrMap, "GroupId")
-			}
-			desc := getDetailStr(sgrMap, "description")
-			if desc == "" {
-				desc = getDetailStr(sgrMap, "Description")
-			}
-			lines = append(lines, fmt.Sprintf("  │ %-10s %-12s %-22s %s", proto, portRange, "sg:"+sgID, desc))
 		}
 
 		// If no ranges or refs matched, show the rule anyway.
 		if len(ipRanges) == 0 && len(sgRefs) == 0 {
-			lines = append(lines, fmt.Sprintf("  │ %-10s %-12s %-22s", proto, portRange, "(self/all)"))
+			label := "(self/all)"
+			if egress {
+				label = "(all)"
+			}
+			rules = append(rules, sgRule{
+				proto:      proto,
+				portRange:  portRange,
+				target:     label,
+				isFallback: true,
+			})
 		}
 	}
+	return rules
+}
+
+// renderRuleSection renders one boxed rule section (title, column header and
+// parsed rows). CIDR rows are styled, with open (0.0.0.0/0 or ::/0) CIDRs
+// highlighted in both directions.
+func renderRuleSection(title, targetCol string, perms []any, egress bool) []string {
+	lines := []string{
+		headerStyle.Render("  ┌─ " + title),
+		fmt.Sprintf("  │ %s  %s  %s  %s", keyStyle.Render("PROTO     "), keyStyle.Render("PORTS      "), keyStyle.Render(targetCol), keyStyle.Render("DESCRIPTION")),
+		"  │ " + strings.Repeat("─", 70),
+	}
+	if len(perms) == 0 {
+		lines = append(lines, "  │ (none)")
+	}
+	for _, rule := range parseSGRules(perms, egress) {
+		switch {
+		case rule.isFallback:
+			lines = append(lines, fmt.Sprintf("  │ %-10s %-12s %-22s", rule.proto, rule.portRange, rule.target))
+		case rule.isCIDR:
+			style := normalStyle
+			if rule.isOpen {
+				style = severityHighStyle
+			}
+			lines = append(lines, style.Render(fmt.Sprintf("  │ %-10s %-12s %-22s %s", rule.proto, rule.portRange, rule.target, rule.desc)))
+		default:
+			lines = append(lines, fmt.Sprintf("  │ %-10s %-12s %-22s %s", rule.proto, rule.portRange, rule.target, rule.desc))
+		}
+	}
+	lines = append(lines, "  └─")
+	return lines
+}
+
+func (v *inventoryView) buildSGDetail(r *storage.Resource, width int) []string {
+	var lines []string
+	meta := r.RawMetadata
+
+	lines = append(lines, titleStyle.Render(fmt.Sprintf("  Security Group: %s", r.Name)))
+	lines = append(lines, "")
+
+	// Basic info.
+	lines = append(lines, headerStyle.Render("  ┌─ Info"))
+	lines = append(lines, fmt.Sprintf("  │ %s %s", keyStyle.Render("Group ID:   "), getDetailStr(meta, "group_id")))
+	lines = append(lines, fmt.Sprintf("  │ %s %s", keyStyle.Render("Name:       "), getDetailStr(meta, "group_name")))
+	lines = append(lines, fmt.Sprintf("  │ %s %s", keyStyle.Render("Description:"), getDetailStr(meta, "description")))
+	lines = append(lines, fmt.Sprintf("  │ %s %s", keyStyle.Render("VPC:        "), getDetailStr(meta, "vpc_id")))
+	lines = append(lines, fmt.Sprintf("  │ %s %s", keyStyle.Render("Region:     "), r.Region))
 	lines = append(lines, "  └─")
 	lines = append(lines, "")
 
+	// Inbound rules.
+	ipPerms, _ := meta["ip_permissions"].([]any)
+	lines = append(lines, renderRuleSection("Inbound Rules", "SOURCE                ", ipPerms, false)...)
+	lines = append(lines, "")
+
 	// Outbound rules.
-	lines = append(lines, headerStyle.Render("  ┌─ Outbound Rules"))
-	lines = append(lines, fmt.Sprintf("  │ %s  %s  %s  %s", keyStyle.Render("PROTO     "), keyStyle.Render("PORTS      "), keyStyle.Render("DESTINATION           "), keyStyle.Render("DESCRIPTION")))
-	lines = append(lines, "  │ "+strings.Repeat("─", 70))
-
 	ipPermsEgress, _ := meta["ip_permissions_egress"].([]any)
-	if len(ipPermsEgress) == 0 {
-		lines = append(lines, "  │ (none)")
-	}
-	for _, perm := range ipPermsEgress {
-		permMap, ok := perm.(map[string]any)
-		if !ok {
-			continue
-		}
-		proto := getDetailStr(permMap, "ip_protocol")
-		if proto == "" {
-			proto = getDetailStr(permMap, "IpProtocol")
-		}
-		if proto == "-1" {
-			proto = "ALL"
-		}
-		fromPort := getFloat(permMap, "from_port", "FromPort")
-		toPort := getFloat(permMap, "to_port", "ToPort")
-		portRange := "ALL"
-		if proto != "ALL" && fromPort >= 0 {
-			if fromPort == toPort {
-				portRange = fmt.Sprintf("%.0f", fromPort)
-			} else {
-				portRange = fmt.Sprintf("%.0f-%.0f", fromPort, toPort)
-			}
-		}
-
-		ipRanges := getSlice(permMap, "ip_ranges", "IpRanges")
-		for _, ipr := range ipRanges {
-			iprMap, ok := ipr.(map[string]any)
-			if !ok {
-				continue
-			}
-			cidr := getDetailStr(iprMap, "cidr_ip")
-			if cidr == "" {
-				cidr = getDetailStr(iprMap, "CidrIp")
-			}
-			desc := getDetailStr(iprMap, "description")
-			if desc == "" {
-				desc = getDetailStr(iprMap, "Description")
-			}
-			lines = append(lines, fmt.Sprintf("  │ %-10s %-12s %-22s %s", proto, portRange, cidr, desc))
-		}
-
-		if len(ipRanges) == 0 {
-			lines = append(lines, fmt.Sprintf("  │ %-10s %-12s %-22s", proto, portRange, "(all)"))
-		}
-	}
-	lines = append(lines, "  └─")
+	lines = append(lines, renderRuleSection("Outbound Rules", "DESTINATION           ", ipPermsEgress, true)...)
 
 	return lines
 }
@@ -517,10 +586,7 @@ func (v *inventoryView) renderPolicyDoc(doc any) []string {
 				if !ok {
 					continue
 				}
-				effect := getDetailStr(stmtMap, "Effect")
-				if effect == "" {
-					effect = getDetailStr(stmtMap, "effect")
-				}
+				effect := getDetailStr(stmtMap, "Effect", "effect")
 
 				effectStyle := passStyle
 				if effect == "Deny" {
@@ -617,16 +683,7 @@ func (v *inventoryView) buildRouteTableDetail(r *storage.Resource, width int) []
 		if !ok {
 			continue
 		}
-		dest := getDetailStr(routeMap, "destination_cidr_block")
-		if dest == "" {
-			dest = getDetailStr(routeMap, "DestinationCidrBlock")
-		}
-		if dest == "" {
-			dest = getDetailStr(routeMap, "destination_ipv6_cidr_block")
-		}
-		if dest == "" {
-			dest = getDetailStr(routeMap, "DestinationIpv6CidrBlock")
-		}
+		dest := getDetailStr(routeMap, "destination_cidr_block", "DestinationCidrBlock", "destination_ipv6_cidr_block", "DestinationIpv6CidrBlock")
 
 		target := ""
 		for _, field := range []string{"gateway_id", "GatewayId", "nat_gateway_id", "NatGatewayId", "instance_id", "InstanceId", "transit_gateway_id", "TransitGatewayId", "vpc_peering_connection_id", "VpcPeeringConnectionId", "network_interface_id", "NetworkInterfaceId"} {
@@ -640,10 +697,7 @@ func (v *inventoryView) buildRouteTableDetail(r *storage.Resource, width int) []
 			target = "local"
 		}
 
-		state := getDetailStr(routeMap, "state")
-		if state == "" {
-			state = getDetailStr(routeMap, "State")
-		}
+		state := getDetailStr(routeMap, "state", "State")
 		if state == "" {
 			state = "active"
 		}
@@ -745,18 +799,26 @@ func (v *inventoryView) buildGenericDetail(r *storage.Resource, width int) []str
 	return lines
 }
 
-func getDetailStr(m map[string]any, key string) string {
+// getDetailStr returns the first non-empty value found under keys.
+// String values are returned as-is; other values are formatted with %v.
+func getDetailStr(m map[string]any, keys ...string) string {
 	if m == nil {
 		return ""
 	}
-	v, ok := m[key]
-	if !ok || v == nil {
-		return ""
+	for _, key := range keys {
+		v, ok := m[key]
+		if !ok || v == nil {
+			continue
+		}
+		s, isStr := v.(string)
+		if !isStr {
+			s = fmt.Sprintf("%v", v)
+		}
+		if s != "" {
+			return s
+		}
 	}
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return fmt.Sprintf("%v", v)
+	return ""
 }
 
 func getFloat(m map[string]any, keys ...string) float64 {
@@ -847,11 +909,4 @@ func formatMetadataValue(val any, maxLen int) string {
 		}
 		return s
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

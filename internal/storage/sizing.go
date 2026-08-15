@@ -49,61 +49,31 @@ func (s *Store) InsertSizing(entry *SizingEntry) error {
 
 // GetSizingByAssessment returns all sizing entries for the given assessment ID.
 func (s *Store) GetSizingByAssessment(assessmentID string) ([]SizingEntry, error) {
-	rows, err := s.DB.Query(`
+	return queryAll(s.DB, "sizing by assessment", scanSizingEntry, `
 		SELECT id, assessment_id, category, resource_id, data
 		FROM sizing
 		WHERE assessment_id = ?`, assessmentID)
-	if err != nil {
-		return nil, fmt.Errorf("querying sizing by assessment: %w", err)
-	}
-	defer rows.Close()
-
-	return scanSizingEntries(rows)
 }
 
-// GetSizingByCategory returns sizing entries for a specific category within an assessment.
-func (s *Store) GetSizingByCategory(assessmentID, category string) ([]SizingEntry, error) {
-	rows, err := s.DB.Query(`
-		SELECT id, assessment_id, category, resource_id, data
-		FROM sizing
-		WHERE assessment_id = ? AND category = ?`, assessmentID, category)
+// scanSizingEntry scans the current row into a SizingEntry struct.
+func scanSizingEntry(row rowScanner) (SizingEntry, error) {
+	var entry SizingEntry
+	var dataJSON string
+
+	err := row.Scan(
+		&entry.ID,
+		&entry.AssessmentID,
+		&entry.Category,
+		&entry.ResourceID,
+		&dataJSON,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("querying sizing by category: %w", err)
-	}
-	defer rows.Close()
-
-	return scanSizingEntries(rows)
-}
-
-// scanSizingEntries scans multiple rows into a slice of SizingEntry structs.
-func scanSizingEntries(rows interface{ Next() bool; Scan(...any) error; Err() error }) ([]SizingEntry, error) {
-	var entries []SizingEntry
-
-	for rows.Next() {
-		var entry SizingEntry
-		var dataJSON string
-
-		err := rows.Scan(
-			&entry.ID,
-			&entry.AssessmentID,
-			&entry.Category,
-			&entry.ResourceID,
-			&dataJSON,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("scanning sizing entry row: %w", err)
-		}
-
-		if err := json.Unmarshal([]byte(dataJSON), &entry.Data); err != nil {
-			return nil, fmt.Errorf("unmarshaling sizing data: %w", err)
-		}
-
-		entries = append(entries, entry)
+		return SizingEntry{}, err
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating sizing entry rows: %w", err)
+	if err := json.Unmarshal([]byte(dataJSON), &entry.Data); err != nil {
+		return SizingEntry{}, fmt.Errorf("unmarshaling sizing data: %w", err)
 	}
 
-	return entries, nil
+	return entry, nil
 }

@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 )
@@ -69,66 +68,23 @@ func (s *Store) InsertResource(resource *Resource) error {
 
 // GetResourcesByAssessment returns all resources for the given assessment ID.
 func (s *Store) GetResourcesByAssessment(assessmentID string) ([]Resource, error) {
-	rows, err := s.DB.Query(`
+	return queryAll(s.DB, "resources by assessment", scanResource, `
 		SELECT id, assessment_id, provider_type, resource_type, resource_id, region, name, tags, raw_metadata
 		FROM resources
 		WHERE assessment_id = ?`, assessmentID)
-	if err != nil {
-		return nil, fmt.Errorf("querying resources by assessment: %w", err)
-	}
-	defer rows.Close()
-
-	return scanResources(rows)
 }
 
 // GetResourceByID returns a specific resource by assessment ID and resource ID.
 // Returns nil if no matching resource is found.
 func (s *Store) GetResourceByID(assessmentID, resourceID string) (*Resource, error) {
-	row := s.DB.QueryRow(`
+	return queryOne(s.DB, "resource by id", scanResource, `
 		SELECT id, assessment_id, provider_type, resource_type, resource_id, region, name, tags, raw_metadata
 		FROM resources
 		WHERE assessment_id = ? AND resource_id = ?`, assessmentID, resourceID)
-
-	r, err := scanResource(row)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("querying resource by id: %w", err)
-	}
-	return r, nil
 }
 
-// GetResourcesByType returns all resources of a given type for the assessment.
-func (s *Store) GetResourcesByType(assessmentID, resourceType string) ([]Resource, error) {
-	rows, err := s.DB.Query(`
-		SELECT id, assessment_id, provider_type, resource_type, resource_id, region, name, tags, raw_metadata
-		FROM resources
-		WHERE assessment_id = ? AND resource_type = ?`, assessmentID, resourceType)
-	if err != nil {
-		return nil, fmt.Errorf("querying resources by type: %w", err)
-	}
-	defer rows.Close()
-
-	return scanResources(rows)
-}
-
-// GetResourcesByRegion returns all resources in a given region for the assessment.
-func (s *Store) GetResourcesByRegion(assessmentID, region string) ([]Resource, error) {
-	rows, err := s.DB.Query(`
-		SELECT id, assessment_id, provider_type, resource_type, resource_id, region, name, tags, raw_metadata
-		FROM resources
-		WHERE assessment_id = ? AND region = ?`, assessmentID, region)
-	if err != nil {
-		return nil, fmt.Errorf("querying resources by region: %w", err)
-	}
-	defer rows.Close()
-
-	return scanResources(rows)
-}
-
-// scanResource scans a single row into a Resource struct.
-func scanResource(row *sql.Row) (*Resource, error) {
+// scanResource scans the current row into a Resource struct.
+func scanResource(row rowScanner) (Resource, error) {
 	var r Resource
 	var tagsJSON, metadataJSON string
 
@@ -144,55 +100,15 @@ func scanResource(row *sql.Row) (*Resource, error) {
 		&metadataJSON,
 	)
 	if err != nil {
-		return nil, err
+		return Resource{}, err
 	}
 
 	if err := json.Unmarshal([]byte(tagsJSON), &r.Tags); err != nil {
-		return nil, fmt.Errorf("unmarshaling tags: %w", err)
+		return Resource{}, fmt.Errorf("unmarshaling tags: %w", err)
 	}
 	if err := json.Unmarshal([]byte(metadataJSON), &r.RawMetadata); err != nil {
-		return nil, fmt.Errorf("unmarshaling raw_metadata: %w", err)
+		return Resource{}, fmt.Errorf("unmarshaling raw_metadata: %w", err)
 	}
 
-	return &r, nil
-}
-
-// scanResources scans multiple rows into a slice of Resource structs.
-func scanResources(rows *sql.Rows) ([]Resource, error) {
-	var resources []Resource
-
-	for rows.Next() {
-		var r Resource
-		var tagsJSON, metadataJSON string
-
-		err := rows.Scan(
-			&r.ID,
-			&r.AssessmentID,
-			&r.ProviderType,
-			&r.ResourceType,
-			&r.ResourceID,
-			&r.Region,
-			&r.Name,
-			&tagsJSON,
-			&metadataJSON,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("scanning resource row: %w", err)
-		}
-
-		if err := json.Unmarshal([]byte(tagsJSON), &r.Tags); err != nil {
-			return nil, fmt.Errorf("unmarshaling tags: %w", err)
-		}
-		if err := json.Unmarshal([]byte(metadataJSON), &r.RawMetadata); err != nil {
-			return nil, fmt.Errorf("unmarshaling raw_metadata: %w", err)
-		}
-
-		resources = append(resources, r)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating resource rows: %w", err)
-	}
-
-	return resources, nil
+	return r, nil
 }

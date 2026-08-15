@@ -8,7 +8,6 @@ import (
 
 	"github.com/chxmxii/a3/internal/config"
 	"github.com/chxmxii/a3/internal/report"
-	"github.com/chxmxii/a3/internal/storage"
 )
 
 func newReportCmd() *cobra.Command {
@@ -32,20 +31,14 @@ func newReportCmd() *cobra.Command {
 }
 
 func runReport(profileName, format, output string) error {
-	cfgPath := config.DefaultConfigPath()
-	cfg, err := config.Load(cfgPath)
+	cfg, err := config.Load(config.DefaultConfigPath())
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	dbFile := resolveDBPath(getDBPath())
-	if cfg.DBPath != "" {
-		dbFile = resolveDBPath(cfg.DBPath)
-	}
-
-	store, err := storage.Open(dbFile)
+	store, err := openStore(cfg)
 	if err != nil {
-		return fmt.Errorf("opening database: %w", err)
+		return err
 	}
 	defer store.Close()
 
