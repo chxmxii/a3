@@ -15,77 +15,69 @@ func AllRules() []assessment.Rule {
 	return []assessment.Rule{
 		// S3
 		&S3PublicAccessRule{},
-		&S3NoEncryptionRule{},
+		s3NoEncryptionRule(),
 		// Security Groups
 		&SecurityGroupOpenRule{},
 		// EBS
-		&EBSUnencryptedRule{},
+		ebsUnencryptedRule(),
 		// RDS
-		&RDSPublicRule{},
-		&RDSNoMultiAZRule{},
-		&RDSNoEncryptionRule{},
-		&RDSNoBackupRule{},
-		&RDSAutoMinorUpgradeRule{},
+		rdsPublicRule(),
+		rdsNoMultiAZRule(),
+		rdsNoEncryptionRule(),
+		rdsNoBackupRule(),
+		rdsAutoMinorUpgradeRule(),
 		// IAM
 		&IAMNoMFARule{},
 		// EKS
 		&EKSPublicEndpointRule{},
 		// EC2
-		&EC2PublicIPRule{},
-		&EC2StoppedInstanceRule{},
-		&EC2NoIMDSv2Rule{},
+		ec2PublicIPRule(),
+		ec2StoppedInstanceRule(),
+		ec2NoIMDSv2Rule(),
 		// Lambda
-		&LambdaNoVPCRule{},
-		&LambdaOldRuntimeRule{},
-		&LambdaHighMemoryRule{},
-		&LambdaNoDeadLetterRule{},
+		lambdaNoVPCRule(),
+		lambdaOldRuntimeRule(),
+		lambdaHighMemoryRule(),
+		lambdaNoDeadLetterRule(),
 		// VPC / Networking
-		&VPCFlowLogsRule{},
-		&VPCDefaultSGRule{},
-		&SubnetPublicIPAutoAssignRule{},
+		vpcFlowLogsRule(),
+		vpcDefaultSGRule(),
+		subnetPublicIPAutoAssignRule(),
 		// ALB / NLB
-		&ALBNoHTTPSRule{},
-		&ALBDeletionProtectionRule{},
-		&ALBAccessLogsRule{},
+		albNoHTTPSRule(),
+		albDeletionProtectionRule(),
+		albAccessLogsRule(),
 	}
 }
 
 // S3PublicAccessRule checks for S3 buckets with public access.
 type S3PublicAccessRule struct{}
 
-func (r *S3PublicAccessRule) ID() string                            { return "aws-s3-public-access" }
-func (r *S3PublicAccessRule) Standard() string                      { return "3A Security Baseline" }
-func (r *S3PublicAccessRule) ControlID() string                     { return "SEC-001" }
-func (r *S3PublicAccessRule) Category() assessment.FindingCategory  { return assessment.CategorySecurity }
-func (r *S3PublicAccessRule) AppliesTo() []provider.ResourceType    { return []provider.ResourceType{provider.ResourceTypeS3Bucket} }
+func (r *S3PublicAccessRule) ID() string        { return "aws-s3-public-access" }
+func (r *S3PublicAccessRule) Standard() string  { return "3A Security Baseline" }
+func (r *S3PublicAccessRule) ControlID() string { return "SEC-001" }
+func (r *S3PublicAccessRule) Category() assessment.FindingCategory {
+	return assessment.CategorySecurity
+}
+func (r *S3PublicAccessRule) AppliesTo() []provider.ResourceType {
+	return []provider.ResourceType{provider.ResourceTypeS3Bucket}
+}
 
 func (r *S3PublicAccessRule) Evaluate(_ context.Context, resource storage.Resource) ([]assessment.Finding, error) {
 	meta := resource.RawMetadata
 
 	// Check bucket_policy_is_public field from Steampipe.
 	if isPublic, ok := meta["bucket_policy_is_public"].(bool); ok && isPublic {
-		return []assessment.Finding{{
-			Severity:       assessment.SeverityHigh,
-			ResourceID:     resource.ResourceID,
-			Description:    fmt.Sprintf("S3 bucket %s has a public bucket policy", resource.Name),
-			Recommendation: "Review and restrict the bucket policy to remove public access",
-			StandardName:   r.Standard(),
-			ControlID:      r.ControlID(),
-			Category:       r.Category(),
-		}}, nil
+		return []assessment.Finding{newFinding(r, assessment.SeverityHigh, resource,
+			fmt.Sprintf("S3 bucket %s has a public bucket policy", resource.Name),
+			"Review and restrict the bucket policy to remove public access")}, nil
 	}
 
 	// Check block public access settings.
 	if blockPublicAcls, ok := meta["block_public_acls"].(bool); ok && !blockPublicAcls {
-		return []assessment.Finding{{
-			Severity:       assessment.SeverityMedium,
-			ResourceID:     resource.ResourceID,
-			Description:    fmt.Sprintf("S3 bucket %s does not block public ACLs", resource.Name),
-			Recommendation: "Enable S3 Block Public Access settings on the bucket",
-			StandardName:   r.Standard(),
-			ControlID:      r.ControlID(),
-			Category:       r.Category(),
-		}}, nil
+		return []assessment.Finding{newFinding(r, assessment.SeverityMedium, resource,
+			fmt.Sprintf("S3 bucket %s does not block public ACLs", resource.Name),
+			"Enable S3 Block Public Access settings on the bucket")}, nil
 	}
 
 	return nil, nil
@@ -94,11 +86,15 @@ func (r *S3PublicAccessRule) Evaluate(_ context.Context, resource storage.Resour
 // SecurityGroupOpenRule checks for security groups open to 0.0.0.0/0 on dangerous ports.
 type SecurityGroupOpenRule struct{}
 
-func (r *SecurityGroupOpenRule) ID() string                            { return "aws-sg-open-access" }
-func (r *SecurityGroupOpenRule) Standard() string                      { return "3A Security Baseline" }
-func (r *SecurityGroupOpenRule) ControlID() string                     { return "SEC-002" }
-func (r *SecurityGroupOpenRule) Category() assessment.FindingCategory  { return assessment.CategorySecurity }
-func (r *SecurityGroupOpenRule) AppliesTo() []provider.ResourceType    { return []provider.ResourceType{provider.ResourceTypeSecurityGroup} }
+func (r *SecurityGroupOpenRule) ID() string        { return "aws-sg-open-access" }
+func (r *SecurityGroupOpenRule) Standard() string  { return "3A Security Baseline" }
+func (r *SecurityGroupOpenRule) ControlID() string { return "SEC-002" }
+func (r *SecurityGroupOpenRule) Category() assessment.FindingCategory {
+	return assessment.CategorySecurity
+}
+func (r *SecurityGroupOpenRule) AppliesTo() []provider.ResourceType {
+	return []provider.ResourceType{provider.ResourceTypeSecurityGroup}
+}
 
 func (r *SecurityGroupOpenRule) Evaluate(_ context.Context, resource storage.Resource) ([]assessment.Finding, error) {
 	meta := resource.RawMetadata
@@ -106,12 +102,12 @@ func (r *SecurityGroupOpenRule) Evaluate(_ context.Context, resource storage.Res
 
 	// Steampipe stores ingress rules as ip_permissions (array of objects).
 	dangerousPorts := map[float64]string{
-		22:   "SSH",
-		3389: "RDP",
-		3306: "MySQL",
-		5432: "PostgreSQL",
-		1433: "MSSQL",
-		6379: "Redis",
+		22:    "SSH",
+		3389:  "RDP",
+		3306:  "MySQL",
+		5432:  "PostgreSQL",
+		1433:  "MSSQL",
+		6379:  "Redis",
 		27017: "MongoDB",
 	}
 
@@ -147,99 +143,73 @@ func (r *SecurityGroupOpenRule) Evaluate(_ context.Context, resource storage.Res
 		// Check if any dangerous port is in the range.
 		for port, svc := range dangerousPorts {
 			if fromPort <= port && port <= toPort {
-				findings = append(findings, assessment.Finding{
-					Severity:       assessment.SeverityHigh,
-					ResourceID:     resource.ResourceID,
-					Description:    fmt.Sprintf("Security group %s allows inbound %s (port %.0f) from 0.0.0.0/0", resource.Name, svc, port),
-					Recommendation: fmt.Sprintf("Restrict inbound access on port %.0f to specific IP ranges", port),
-					StandardName:   r.Standard(),
-					ControlID:      r.ControlID(),
-					Category:       r.Category(),
-				})
+				findings = append(findings, newFinding(r, assessment.SeverityHigh, resource,
+					fmt.Sprintf("Security group %s allows inbound %s (port %.0f) from 0.0.0.0/0", resource.Name, svc, port),
+					fmt.Sprintf("Restrict inbound access on port %.0f to specific IP ranges", port)))
 			}
 		}
 
 		// If all ports are open (-1 or 0-65535).
 		if fromPort == 0 && toPort == 65535 {
-			findings = append(findings, assessment.Finding{
-				Severity:       assessment.SeverityCritical,
-				ResourceID:     resource.ResourceID,
-				Description:    fmt.Sprintf("Security group %s allows ALL inbound traffic from 0.0.0.0/0", resource.Name),
-				Recommendation: "Restrict inbound access to only required ports and IP ranges",
-				StandardName:   r.Standard(),
-				ControlID:      r.ControlID(),
-				Category:       r.Category(),
-			})
+			findings = append(findings, newFinding(r, assessment.SeverityCritical, resource,
+				fmt.Sprintf("Security group %s allows ALL inbound traffic from 0.0.0.0/0", resource.Name),
+				"Restrict inbound access to only required ports and IP ranges"))
 		}
 	}
 
 	return findings, nil
 }
 
-// EBSUnencryptedRule checks for unencrypted EBS volumes.
-type EBSUnencryptedRule struct{}
-
-func (r *EBSUnencryptedRule) ID() string                            { return "aws-ebs-unencrypted" }
-func (r *EBSUnencryptedRule) Standard() string                      { return "3A Security Baseline" }
-func (r *EBSUnencryptedRule) ControlID() string                     { return "SEC-003" }
-func (r *EBSUnencryptedRule) Category() assessment.FindingCategory  { return assessment.CategorySecurity }
-func (r *EBSUnencryptedRule) AppliesTo() []provider.ResourceType    { return []provider.ResourceType{provider.ResourceTypeEBSVolume} }
-
-func (r *EBSUnencryptedRule) Evaluate(_ context.Context, resource storage.Resource) ([]assessment.Finding, error) {
-	meta := resource.RawMetadata
-
-	encrypted, ok := meta["encrypted"].(bool)
-	if ok && !encrypted {
-		return []assessment.Finding{{
-			Severity:       assessment.SeverityMedium,
-			ResourceID:     resource.ResourceID,
-			Description:    fmt.Sprintf("EBS volume %s is not encrypted", resource.Name),
-			Recommendation: "Enable encryption for EBS volumes. Create a new encrypted volume and migrate data.",
-			StandardName:   r.Standard(),
-			ControlID:      r.ControlID(),
-			Category:       r.Category(),
-		}}, nil
+// ebsUnencryptedRule checks for unencrypted EBS volumes.
+func ebsUnencryptedRule() *simpleRule {
+	return &simpleRule{
+		id:             "aws-ebs-unencrypted",
+		standard:       "3A Security Baseline",
+		controlID:      "SEC-003",
+		category:       assessment.CategorySecurity,
+		severity:       assessment.SeverityMedium,
+		appliesTo:      []provider.ResourceType{provider.ResourceTypeEBSVolume},
+		recommendation: "Enable encryption for EBS volumes. Create a new encrypted volume and migrate data.",
+		describe: func(resource storage.Resource) string {
+			return fmt.Sprintf("EBS volume %s is not encrypted", resource.Name)
+		},
+		violated: func(meta map[string]any) bool {
+			encrypted, ok := meta["encrypted"].(bool)
+			return ok && !encrypted
+		},
 	}
-
-	return nil, nil
 }
 
-// RDSPublicRule checks for publicly accessible RDS instances.
-type RDSPublicRule struct{}
-
-func (r *RDSPublicRule) ID() string                            { return "aws-rds-public" }
-func (r *RDSPublicRule) Standard() string                      { return "3A Security Baseline" }
-func (r *RDSPublicRule) ControlID() string                     { return "SEC-004" }
-func (r *RDSPublicRule) Category() assessment.FindingCategory  { return assessment.CategorySecurity }
-func (r *RDSPublicRule) AppliesTo() []provider.ResourceType    { return []provider.ResourceType{provider.ResourceTypeRDS} }
-
-func (r *RDSPublicRule) Evaluate(_ context.Context, resource storage.Resource) ([]assessment.Finding, error) {
-	meta := resource.RawMetadata
-
-	publiclyAccessible, ok := meta["publicly_accessible"].(bool)
-	if ok && publiclyAccessible {
-		return []assessment.Finding{{
-			Severity:       assessment.SeverityHigh,
-			ResourceID:     resource.ResourceID,
-			Description:    fmt.Sprintf("RDS instance %s is publicly accessible", resource.Name),
-			Recommendation: "Disable public accessibility for the RDS instance and use VPC connectivity",
-			StandardName:   r.Standard(),
-			ControlID:      r.ControlID(),
-			Category:       r.Category(),
-		}}, nil
+// rdsPublicRule checks for publicly accessible RDS instances.
+func rdsPublicRule() *simpleRule {
+	return &simpleRule{
+		id:             "aws-rds-public",
+		standard:       "3A Security Baseline",
+		controlID:      "SEC-004",
+		category:       assessment.CategorySecurity,
+		severity:       assessment.SeverityHigh,
+		appliesTo:      []provider.ResourceType{provider.ResourceTypeRDS},
+		recommendation: "Disable public accessibility for the RDS instance and use VPC connectivity",
+		describe: func(resource storage.Resource) string {
+			return fmt.Sprintf("RDS instance %s is publicly accessible", resource.Name)
+		},
+		violated: func(meta map[string]any) bool {
+			publiclyAccessible, ok := meta["publicly_accessible"].(bool)
+			return ok && publiclyAccessible
+		},
 	}
-
-	return nil, nil
 }
 
 // IAMNoMFARule checks for IAM users without MFA enabled.
 type IAMNoMFARule struct{}
 
-func (r *IAMNoMFARule) ID() string                            { return "aws-iam-no-mfa" }
-func (r *IAMNoMFARule) Standard() string                      { return "3A Security Baseline" }
-func (r *IAMNoMFARule) ControlID() string                     { return "SEC-005" }
-func (r *IAMNoMFARule) Category() assessment.FindingCategory  { return assessment.CategorySecurity }
-func (r *IAMNoMFARule) AppliesTo() []provider.ResourceType    { return []provider.ResourceType{provider.ResourceTypeIAMUser} }
+func (r *IAMNoMFARule) ID() string                           { return "aws-iam-no-mfa" }
+func (r *IAMNoMFARule) Standard() string                     { return "3A Security Baseline" }
+func (r *IAMNoMFARule) ControlID() string                    { return "SEC-005" }
+func (r *IAMNoMFARule) Category() assessment.FindingCategory { return assessment.CategorySecurity }
+func (r *IAMNoMFARule) AppliesTo() []provider.ResourceType {
+	return []provider.ResourceType{provider.ResourceTypeIAMUser}
+}
 
 func (r *IAMNoMFARule) Evaluate(_ context.Context, resource storage.Resource) ([]assessment.Finding, error) {
 	meta := resource.RawMetadata
@@ -247,28 +217,16 @@ func (r *IAMNoMFARule) Evaluate(_ context.Context, resource storage.Resource) ([
 	// Steampipe aws_iam_user has mfa_enabled field.
 	mfaEnabled, ok := meta["mfa_enabled"].(bool)
 	if ok && !mfaEnabled {
-		return []assessment.Finding{{
-			Severity:       assessment.SeverityHigh,
-			ResourceID:     resource.ResourceID,
-			Description:    fmt.Sprintf("IAM user %s does not have MFA enabled", resource.Name),
-			Recommendation: "Enable MFA for all IAM users, especially those with console access",
-			StandardName:   r.Standard(),
-			ControlID:      r.ControlID(),
-			Category:       r.Category(),
-		}}, nil
+		return []assessment.Finding{newFinding(r, assessment.SeverityHigh, resource,
+			fmt.Sprintf("IAM user %s does not have MFA enabled", resource.Name),
+			"Enable MFA for all IAM users, especially those with console access")}, nil
 	}
 
 	// Also check mfa_devices count.
 	if devices, ok := meta["mfa_devices"].([]any); ok && len(devices) == 0 {
-		return []assessment.Finding{{
-			Severity:       assessment.SeverityHigh,
-			ResourceID:     resource.ResourceID,
-			Description:    fmt.Sprintf("IAM user %s has no MFA devices configured", resource.Name),
-			Recommendation: "Enable MFA for all IAM users, especially those with console access",
-			StandardName:   r.Standard(),
-			ControlID:      r.ControlID(),
-			Category:       r.Category(),
-		}}, nil
+		return []assessment.Finding{newFinding(r, assessment.SeverityHigh, resource,
+			fmt.Sprintf("IAM user %s has no MFA devices configured", resource.Name),
+			"Enable MFA for all IAM users, especially those with console access")}, nil
 	}
 
 	return nil, nil
@@ -277,11 +235,15 @@ func (r *IAMNoMFARule) Evaluate(_ context.Context, resource storage.Resource) ([
 // EKSPublicEndpointRule checks for EKS clusters with public API endpoints.
 type EKSPublicEndpointRule struct{}
 
-func (r *EKSPublicEndpointRule) ID() string                            { return "aws-eks-public-endpoint" }
-func (r *EKSPublicEndpointRule) Standard() string                      { return "3A Security Baseline" }
-func (r *EKSPublicEndpointRule) ControlID() string                     { return "SEC-006" }
-func (r *EKSPublicEndpointRule) Category() assessment.FindingCategory  { return assessment.CategorySecurity }
-func (r *EKSPublicEndpointRule) AppliesTo() []provider.ResourceType    { return []provider.ResourceType{provider.ResourceTypeEKSCluster} }
+func (r *EKSPublicEndpointRule) ID() string        { return "aws-eks-public-endpoint" }
+func (r *EKSPublicEndpointRule) Standard() string  { return "3A Security Baseline" }
+func (r *EKSPublicEndpointRule) ControlID() string { return "SEC-006" }
+func (r *EKSPublicEndpointRule) Category() assessment.FindingCategory {
+	return assessment.CategorySecurity
+}
+func (r *EKSPublicEndpointRule) AppliesTo() []provider.ResourceType {
+	return []provider.ResourceType{provider.ResourceTypeEKSCluster}
+}
 
 func (r *EKSPublicEndpointRule) Evaluate(_ context.Context, resource storage.Resource) ([]assessment.Finding, error) {
 	meta := resource.RawMetadata
@@ -295,72 +257,44 @@ func (r *EKSPublicEndpointRule) Evaluate(_ context.Context, resource storage.Res
 			if privateAccess {
 				severity = assessment.SeverityMedium
 			}
-			return []assessment.Finding{{
-				Severity:       severity,
-				ResourceID:     resource.ResourceID,
-				Description:    fmt.Sprintf("EKS cluster %s has public API endpoint enabled", resource.Name),
-				Recommendation: "Disable public endpoint access and use private endpoint with VPN/DirectConnect",
-				StandardName:   r.Standard(),
-				ControlID:      r.ControlID(),
-				Category:       r.Category(),
-			}}, nil
+			return []assessment.Finding{newFinding(r, severity, resource,
+				fmt.Sprintf("EKS cluster %s has public API endpoint enabled", resource.Name),
+				"Disable public endpoint access and use private endpoint with VPN/DirectConnect")}, nil
 		}
 	}
 
 	// Also check top-level endpoint_public_access (Steampipe flattened).
 	if pub, ok := meta["endpoint_public_access"].(bool); ok && pub {
-		return []assessment.Finding{{
-			Severity:       assessment.SeverityHigh,
-			ResourceID:     resource.ResourceID,
-			Description:    fmt.Sprintf("EKS cluster %s has public API endpoint enabled", resource.Name),
-			Recommendation: "Disable public endpoint access and use private endpoint with VPN/DirectConnect",
-			StandardName:   r.Standard(),
-			ControlID:      r.ControlID(),
-			Category:       r.Category(),
-		}}, nil
+		return []assessment.Finding{newFinding(r, assessment.SeverityHigh, resource,
+			fmt.Sprintf("EKS cluster %s has public API endpoint enabled", resource.Name),
+			"Disable public endpoint access and use private endpoint with VPN/DirectConnect")}, nil
 	}
 
 	return nil, nil
 }
 
-// S3NoEncryptionRule checks for S3 buckets without default encryption.
-type S3NoEncryptionRule struct{}
-
-func (r *S3NoEncryptionRule) ID() string                            { return "aws-s3-no-encryption" }
-func (r *S3NoEncryptionRule) Standard() string                      { return "3A Security Baseline" }
-func (r *S3NoEncryptionRule) ControlID() string                     { return "SEC-007" }
-func (r *S3NoEncryptionRule) Category() assessment.FindingCategory  { return assessment.CategorySecurity }
-func (r *S3NoEncryptionRule) AppliesTo() []provider.ResourceType    { return []provider.ResourceType{provider.ResourceTypeS3Bucket} }
-
-func (r *S3NoEncryptionRule) Evaluate(_ context.Context, resource storage.Resource) ([]assessment.Finding, error) {
-	meta := resource.RawMetadata
-
-	// Steampipe: server_side_encryption_configuration is null if not configured.
-	encConfig := meta["server_side_encryption_configuration"]
-	if encConfig == nil {
-		return []assessment.Finding{{
-			Severity:       assessment.SeverityMedium,
-			ResourceID:     resource.ResourceID,
-			Description:    fmt.Sprintf("S3 bucket %s does not have default encryption configured", resource.Name),
-			Recommendation: "Enable default encryption (SSE-S3 or SSE-KMS) on the bucket",
-			StandardName:   r.Standard(),
-			ControlID:      r.ControlID(),
-			Category:       r.Category(),
-		}}, nil
+// s3NoEncryptionRule checks for S3 buckets without default encryption.
+func s3NoEncryptionRule() *simpleRule {
+	return &simpleRule{
+		id:             "aws-s3-no-encryption",
+		standard:       "3A Security Baseline",
+		controlID:      "SEC-007",
+		category:       assessment.CategorySecurity,
+		severity:       assessment.SeverityMedium,
+		appliesTo:      []provider.ResourceType{provider.ResourceTypeS3Bucket},
+		recommendation: "Enable default encryption (SSE-S3 or SSE-KMS) on the bucket",
+		describe: func(resource storage.Resource) string {
+			return fmt.Sprintf("S3 bucket %s does not have default encryption configured", resource.Name)
+		},
+		violated: func(meta map[string]any) bool {
+			// Steampipe: server_side_encryption_configuration is null if not configured.
+			encConfig := meta["server_side_encryption_configuration"]
+			if encConfig == nil {
+				return true
+			}
+			// Check if it's an empty string or "null".
+			s, ok := encConfig.(string)
+			return ok && (s == "" || strings.ToLower(s) == "null")
+		},
 	}
-
-	// Check if it's an empty string or "null".
-	if s, ok := encConfig.(string); ok && (s == "" || strings.ToLower(s) == "null") {
-		return []assessment.Finding{{
-			Severity:       assessment.SeverityMedium,
-			ResourceID:     resource.ResourceID,
-			Description:    fmt.Sprintf("S3 bucket %s does not have default encryption configured", resource.Name),
-			Recommendation: "Enable default encryption (SSE-S3 or SSE-KMS) on the bucket",
-			StandardName:   r.Standard(),
-			ControlID:      r.ControlID(),
-			Category:       r.Category(),
-		}}, nil
-	}
-
-	return nil, nil
 }
